@@ -1,0 +1,125 @@
+:root{
+  --bg:#0b0b0c; --fg:#e6e6e6; --muted:#9aa0a6;
+  --card:#141416; --ring:rgba(255,255,255,.12);
+  --tile-radius:18px; --gap:14px; --grid-max:1400px;
+  color-scheme: light dark;
+}
+html[data-theme="light"]{
+  --bg:#f7f7f9; --fg:#0f1115; --muted:#5b6068;
+  --card:#ffffff; --ring:rgba(0,0,0,.12);
+}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font:14px/1.45 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+}
+
+/* header */
+.bar{
+  position:sticky; top:0; z-index:10;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:12px max(env(safe-area-inset-left,16px),16px) 12px max(env(safe-area-inset-right,16px),16px);
+  backdrop-filter:saturate(140%) blur(6px);
+  background:color-mix(in oklab, var(--bg) 82%, transparent);
+  border-bottom:1px solid var(--ring);
+}
+.brand{
+  width:28px; height:28px; border-radius:999px;
+  background: conic-gradient(from 180deg, #4bb1ff, #7a5cff, #ff5cf7, #ff7a7a, #ffd057, #7cff8b, #4bb1ff);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--bg) 65%, transparent) inset;
+}
+.controls{display:flex; gap:10px; align-items:center}
+.btn{
+  display:grid; place-items:center;
+  width:36px; height:36px; border-radius:14px;
+  border:1px solid var(--ring); background:var(--card);
+  cursor:pointer; user-select:none; -webkit-tap-highlight-color:transparent;
+  transition: transform .15s ease, background .2s ease, border-color .2s ease, opacity .2s;
+}
+.btn:active{ transform: scale(.97) }
+.btn svg{ width:18px; height:18px; fill:none; stroke:var(--fg); stroke-width:1.6; vector-effect:non-scaling-stroke }
+
+main{ max-width:var(--grid-max); margin:18px auto; padding:0 16px 80px }
+
+/* grid */
+.grid{
+  display:grid; gap:var(--gap);
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
+.tile{
+  background:var(--card);
+  border:1px solid var(--ring);
+  border-radius:var(--tile-radius);
+  overflow:hidden;
+  display:flex; flex-direction:column; min-height:230px;
+  box-shadow: 0 1px 0 rgba(0,0,0,.05);
+}
+.swatch{
+  position:relative; flex:1; min-height:140px;
+  border-bottom:1px dashed var(--ring);
+  display:grid; place-items:center;
+}
+.swatch::after{
+  content:""; position:absolute; inset:0; pointer-events:none;
+  opacity:0; transition:opacity .25s ease;
+  background:
+    radial-gradient(120px 120px at var(--x,50%) var(--y,50%), color-mix(in oklab, #ffffff 35%, transparent), transparent 60%);
+}
+.tile.playing .swatch::after{ opacity:.35 }
+
+/* play icon */
+.play{
+  position:absolute; inset:auto; width:46px; height:46px;
+  border-radius:16px; border:1px solid var(--ring); background: color-mix(in oklab, var(--card) 75%, transparent);
+  display:grid; place-items:center;
+  box-shadow: 0 6px 20px rgba(0,0,0,.18);
+  transition: transform .15s ease, background .2s ease, border-color .2s ease, opacity .2s ease;
+  opacity:.95;
+}
+.tile:hover .play{ transform: translateY(-1px) }
+.tile .play svg{ width:18px; height:18px; stroke:var(--fg); stroke-width:1.8 }
+.tile.playing .play{ opacity:.35 }
+
+.meta{
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+  padding:10px 12px;
+}
+.date{
+  font-feature-settings:"tnum" 1; font-variant-numeric:tabular-nums;
+  letter-spacing:.2px; opacity:.85;
+}
+.hex{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  padding:4px 8px; border-radius:10px; border:1px solid var(--ring);
+  background: color-mix(in oklab, var(--card) 70%, transparent);
+}
+
+/* to-top */
+.to-top{
+  position:fixed; right:16px; bottom:16px; z-index:20;
+  opacity:0; pointer-events:none; transform: translateY(8px);
+  transition: opacity .25s ease, transform .25s ease;
+}
+.to-top.visible{ opacity:1; pointer-events:auto; transform: translateY(0) }
+
+@media (prefers-reduced-motion: reduce){
+  *{transition:none!important; animation:none!important}
+}
+
+.brandwrap{ display:flex; align-items:center; gap:12px; min-width:0 }
+.tickers{
+  display:flex; align-items:center; gap:8px;
+  color: var(--muted); font-size:12px; letter-spacing:.3px; opacity:.88;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.ticker{ display:inline-block; max-width:40vw; transition:opacity .35s ease }
+.sep{ opacity:.5 }
+@media (max-width:520px){
+  .tickers{
+    font-size: 10px;
+    gap: 4px;
+    max-width: 50vw;
+    white-space: normal; /* allow wrap */
+  }
+}
