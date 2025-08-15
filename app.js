@@ -1,8 +1,24 @@
 (() => {
-  // ---------- DOM ----------
-  const $ = (q, el=document) => el.querySelector(q);
+  // Select a single element
+  const $ = (q, el = document) => el.querySelector(q);
 
-  // ---------- theme / to-top / mute ----------
+  // --- Play/Pause icon helpers and tile UI state ---
+  const PLAY_SVG  = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7-11-7z"></path></svg>`;
+  const PAUSE_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h5v14H6zM13 5h5v14h-5z"></path></svg>`;
+  function setTilePlaying(tile, isOn) {
+    if (!tile) return;
+    tile.classList.toggle("playing", !!isOn);
+    const btn = tile.querySelector(".play");
+    if (btn) btn.innerHTML = isOn ? PAUSE_SVG : PLAY_SVG;
+  }
+  // Reset UI state for all tiles marked as playing
+  function resetAllTilesUI() {
+    document.querySelectorAll(".tile.playing").forEach(t => setTilePlaying(t, false));
+  }
+  // Prevent overlapping play/stop sequences under rapid taps
+  let playBusy = false;
+
+  // --- Theme, to-top, and mute state ---
   const THEME_KEY = "huewave/theme";
   const prefersDark = matchMedia("(prefers-color-scheme: dark)").matches;
   const savedTheme = localStorage.getItem(THEME_KEY);
@@ -24,37 +40,45 @@
   let muted = JSON.parse(localStorage.getItem("huewave/muted") || "false");
   $("#muteBtn")?.addEventListener("click", () => { ensureCtx(); setMuted(!muted); });
 
-  // ---------- text tickers (fixed translations) ----------
+  // --- Text tickers for “mood” and “sound” (translations only) ---
   const MOOD = ["mood","estado de ánimo","humeur","stimmung","umore","humor","stemming","humör","humør","mieliala","nastrój","nálada","hangulat","stare","настроение","настрій","διάθεση","ruh hali","مزاج","מצב רוח","मूड","মুড","気分","기분","心情","心情","tâm trạng","suasana","suasana hati","damdamin","sauti ya hisia","አመለካከት"];
   const SOUND = ["sound","sonido","son","klang","suono","som","geluid","ljud","lyd","ääni","dźwięk","zvuk","hang","sunet","звук","звук","ήχος","ses","صوت","צליל","ध्वनि","শব্দ","音","소리","声音","聲音","âm thanh","bunyi","tunog","sauti","ድምፅ"];
-  function cycle(el, words, base=2200, jitter=900){ if(!el) return; let i=0; const step=()=>{ el.style.opacity=0; setTimeout(()=>{ el.textContent=words[i%words.length]; el.style.opacity=1; i++; setTimeout(step, base+Math.floor(Math.random()*jitter)); },220); }; el.textContent=words[0]; setTimeout(step, base+Math.floor(Math.random()*jitter));}
+  function cycle(el, words, base=2200, jitter=900){
+    if(!el) return;
+    let i=0;
+    const step=()=>{ el.style.opacity=0; setTimeout(()=>{ el.textContent=words[i%words.length]; el.style.opacity=1; i++; setTimeout(step, base+Math.floor(Math.random()*jitter)); },220); };
+    el.textContent=words[0];
+    setTimeout(step, base+Math.floor(Math.random()*jitter));
+  }
   cycle($("#moodTicker"), MOOD, 2200, 800);
   cycle($("#soundTicker"), SOUND, 3000, 1200);
 
-  // ---------- palette helpers ----------
-  function hexToHsl(hex){ const m=/^#?([0-9a-f]{6})$/i.exec(hex||""); if(!m) return {h:0,s:0,l:0.5};
+  // --- Color utility (HEX to HSL) ---
+  function hexToHsl(hex){
+    const m=/^#?([0-9a-f]{6})$/i.exec(hex||""); if(!m) return {h:0,s:0,l:0.5};
     const n=parseInt(m[1],16), r=((n>>16)&255)/255, g=((n>>8)&255)/255, b=(n&255)/255;
     const max=Math.max(r,g,b), min=Math.min(r,g,b), l=(max+min)/2; let h=0,s=0;
-    if(max!==min){const d=max-min; s=l>0.5?d/(2-max-min):d/(max+min);
-      switch(max){case r:h=(g-b)/d+(g<b?6:0);break;case g:h=(b-r)/d+2;break;default:h=(r-g)/d+4;} h/=6;}
+    if(max!==min){ const d=max-min; s=l>0.5?d/(2-max-min):d/(max+min);
+      switch(max){case r:h=(g-b)/d+(g<b?6:0);break;case g:h=(b-r)/d+2;break;default:h=(r-g)/d+4;} h/=6; }
     return {h,s,l};
   }
 
-  // ---------- theory ----------
+  // --- Music theory helpers ---
   const NOTE_INDEX={C:0,"C#":1,Db:1,D:2,"D#":3,Eb:3,E:4,F:5,"F#":6,Gb:6,G:7,"G#":8,Ab:8,A:9,"A#":10,Bb:10,B:11};
   const A4=440,A4_MIDI=69, midiToFreq=m=>A4*Math.pow(2,(m-A4_MIDI)/12);
   function noteToMidi(n="A3"){ const m=/^([A-G](?:#|b)?)\s*(-?\d+)$/.exec(String(n).trim()); if(!m) return 57; const[,nm,o]=m; return (parseInt(o,10)+1)*12+(NOTE_INDEX[nm]??9); }
   const MODES={ionian:[0,2,4,5,7,9,11],dorian:[0,2,3,5,7,9,10],phrygian:[0,1,3,5,7,8,10],lydian:[0,2,4,6,7,9,11],mixolydian:[0,2,4,5,7,9,10],aeolian:[0,2,3,5,7,8,10],locrian:[0,1,3,5,6,8,10],pent_major:[0,2,4,7,9],pent_minor:[0,3,5,7,10]};
   const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 
-  // ---------- audio core: EXACTLY the studio chain ----------
+  // --- Audio graph: matches studio chain exactly ---
   let AudioCtx = window.AudioContext||window.webkitAudioContext;
   let ctx=null, bus=null, preLP=null, agc=null, comp=null, limiter=null, dcBlock=null, master=null, analyser=null;
   let delay=null, delayWet=null, fbHP=null, fbGain=null, padBus=null;
 
-  // EPHEMERAL registry: only per-play nodes (osc, envelopes, buffers, delay loop)
+  // --- Registry of ephemeral nodes for clean teardown ---
   const EPHEM=new Set(); const regE=n=>(n&&n.connect&&EPHEM.add(n),n);
 
+  // --- Mute state with smooth ramping ---
   function setMuted(v){
     muted=!!v;
     if(master && ctx){ const t=ctx.currentTime; master.gain.cancelScheduledValues(t); master.gain.linearRampToValueAtTime(muted?0.0:0.96, t+0.06); }
@@ -63,56 +87,57 @@
   }
   setMuted(muted);
 
+  // --- Soft limiter waveshaper (safety ceiling) ---
   function makeLimiter(){ const ws=ctx.createWaveShaper(); const N=2048,c=new Float32Array(N);
     for(let i=0;i<N;i++){ const x=(i/(N-1))*2-1; c[i]=Math.max(-0.985, Math.min(0.985, x)); } ws.curve=c; ws.oversample="4x"; return ws; }
 
+  // --- Ensure AudioContext and core chain exist and run ---
   async function ensureCtx(){
     if(ctx){ if(ctx.state!=="running"){ try{await ctx.resume();}catch{} } return; }
     ctx=new AudioCtx({latencyHint:"interactive"});
-    // core nodes (NOT registered)
     bus    = ctx.createGain();        bus.gain.value=0.9;
     preLP  = ctx.createBiquadFilter();preLP.type="lowpass"; preLP.frequency.value=16000; preLP.Q.value=0.5;
-    agc    = ctx.createGain();        agc.gain.value=1.0;   // downward-only rider will reduce if hot
+    agc    = ctx.createGain();        agc.gain.value=1.0;
     comp   = new DynamicsCompressorNode(ctx,{threshold:-18,knee:18,ratio:3,attack:0.006,release:0.16});
     limiter= makeLimiter();
     dcBlock= ctx.createBiquadFilter();dcBlock.type="highpass"; dcBlock.frequency.value=25;
     master = ctx.createGain();        master.gain.value = muted?0.0:0.96;
     analyser = ctx.createAnalyser();  analyser.fftSize=2048;
-    padBus  = ctx.createGain();       padBus.gain.value=0.0; // ambient pad level
+    padBus  = ctx.createGain();       padBus.gain.value=0.0;
 
-    // routing: padBus merges into bus before the core chain
     padBus.connect(bus);
     bus.connect(preLP).connect(agc).connect(comp).connect(limiter).connect(dcBlock).connect(master).connect(ctx.destination);
     limiter.connect(analyser);
 
     rebuildDelay();
-
     document.addEventListener("visibilitychange",()=>{ if(ctx && ctx.state!=="running") ctx.resume(); });
   }
 
+  // --- Gentle pre-delay saturator for thickness without harshness ---
   function makePreDelaySat(drive=1.04){ const ws=regE(ctx.createWaveShaper()); const N=1024,c=new Float32Array(N);
     for(let i=0;i<N;i++){ const x=(i/N)*2-1; c[i]=Math.tanh(x*drive);} ws.curve=c; ws.oversample="2x"; return ws; }
 
+  // --- Delay loop builder with feedback and wet mix ---
   function rebuildDelay(){
     if(!ctx) return;
     try{ delay && delay.disconnect(); delayWet && delayWet.disconnect(); fbHP && fbHP.disconnect(); fbGain && fbGain.disconnect(); }catch{}
     delay    = regE(ctx.createDelay(0.6)); delay.delayTime.value = 0.16;
-    delayWet = regE(ctx.createGain());     delayWet.gain.value   = 0.08; // gentle
+    delayWet = regE(ctx.createGain());     delayWet.gain.value   = 0.08;
     fbHP     = regE(ctx.createBiquadFilter()); fbHP.type="highpass"; fbHP.frequency.value=150;
     fbGain   = regE(ctx.createGain());     fbGain.gain.value     = 0.07;
 
     const preDelaySat = makePreDelaySat(1.04);
     bus.connect(preDelaySat).connect(delay);
-    delay.connect(delayWet).connect(comp);         // wet rejoins pre-limiter
+    delay.connect(delayWet).connect(comp);
     delay.connect(fbHP).connect(fbGain).connect(delay);
   }
 
-  // diagnostics (optional)
+  // --- Output RMS meter for AGC ---
   const buf=new Uint8Array(2048);
   function rmsNow(){ if(!analyser) return 0; analyser.getByteTimeDomainData(buf); let s=0; for(let i=0;i<buf.length;i++){ const v=(buf[i]-128)/128; s+=v*v; } return Math.sqrt(s/buf.length); }
   setInterval(()=>{ if(!ctx||!agc) return; const r=rmsNow(), target=0.17; if(r>target && agc.gain.value>0.8){ const t=ctx.currentTime; agc.gain.setValueAtTime(Math.max(0.8, agc.gain.value-0.02), t); } }, 250);
 
-  // silence gate & hard kill (EPHEMERAL only)
+  // --- Wait until output is quiet to avoid tail buildup ---
   function waitForSilence(th=0.012, hold=160, timeout=900){
     const start=performance.now(); let ok=0;
     return new Promise(res=>{
@@ -122,6 +147,8 @@
       },33);
     });
   }
+
+  // --- Stop and disconnect all ephemeral nodes ---
   async function hardKillAll(){
     if(!ctx) return;
     const now=ctx.currentTime;
@@ -134,20 +161,22 @@
     EPHEM.clear();
   }
 
-  // ---------- building blocks ----------
+  // --- Envelope generator (ADSR) ---
   function env(t,a=0.006,d=0.06,s=0.6,r=0.14,g=0.22){ const gn=regE(ctx.createGain()); gn.gain.setValueAtTime(0.0001,t); gn.gain.linearRampToValueAtTime(g,t+a); gn.gain.linearRampToValueAtTime(g*s,t+a+d); gn.gain.exponentialRampToValueAtTime(0.0001,t+a+d+r); return gn; }
+
+  // --- Oscillator constructor ---
   function osc(type,f){ const o=regE(ctx.createOscillator()); o.type=type; o.frequency.value=f; return o; }
 
-  // drums
+  // --- Drum voices (kick, snare, hat) ---
   function kick(t,v=0.72){ const g=env(t,0.002,0.08,0,0.18,v); const o=osc("sine",150); o.frequency.setValueAtTime(150,t); o.frequency.exponentialRampToValueAtTime(42,t+0.16); o.connect(g).connect(bus); o.start(t); o.stop(t+0.3); }
   function snare(t,v=0.42){ const dur=0.16; const b=regE(ctx.createBuffer(1,Math.ceil(dur*ctx.sampleRate),ctx.sampleRate)); const ch=b.getChannelData(0); for(let i=0;i<ch.length;i++) ch[i]=Math.random()*2-1; const s=regE(ctx.createBufferSource()); s.buffer=b; const hp=regE(ctx.createBiquadFilter()); hp.type="highpass"; hp.frequency.value=1500; const bp=regE(ctx.createBiquadFilter()); bp.type="bandpass"; bp.frequency.value=1400; bp.Q.value=0.9; const g=env(t,0.001,dur*0.6,0,dur*0.6,v); s.connect(hp).connect(bp).connect(g).connect(bus); s.start(t); s.stop(t+dur); }
   function hat(t,v=0.14,closed=true){ const dur=closed?0.05:0.18; const b=regE(ctx.createBuffer(1,Math.ceil(dur*ctx.sampleRate),ctx.sampleRate)); const ch=b.getChannelData(0); for(let i=0;i<ch.length;i++) ch[i]=Math.random()*2-1; const s=regE(ctx.createBufferSource()); s.buffer=b; const hp=regE(ctx.createBiquadFilter()); hp.type="highpass"; hp.frequency.value=7000; const g=env(t,0.001,closed?0.02:0.05,closed?0:0.3,closed?0.03:0.12,v); s.connect(hp).connect(g).connect(bus); s.start(t); s.stop(t+dur); }
 
-  // melody
+  // --- Melodic note and chord builders ---
   function blip(t,f,{wave="triangle",dur=0.22,gain=0.18,wobble=0.0025}={}){ const o=osc(wave,f); const l=osc("sine",5.1); const lg=regE(ctx.createGain()); lg.gain.value=f*wobble; l.connect(lg).connect(o.frequency); const g=env(t,0.01,dur*0.4,0.55,Math.max(0.1,dur*0.55),gain); o.connect(g).connect(bus); o.start(t); l.start(t); o.stop(t+dur+0.05); l.stop(t+dur+0.05); }
   function chord(t,fs,{wave="triangle",gain=0.15,dur=0.4}={}){ const g=env(t,0.012,0.12,0.45,0.26,gain); g.connect(bus); fs.forEach(f=>{ const o=osc(wave,f); o.connect(g); o.start(t); o.stop(t+dur); }); }
 
-  // ---------- Ambient Pad (exact studio logic) ----------
+  // --- Ambient pad generator (stereo, color-aware) ---
   function startAmbientPad({hex="#6BCB77", base="A3", level=0.08}){
     const {l}=hexToHsl(hex); const cutoff=300 + l*5000; const det=0.4 + (1-l)*0.8;
     const baseMidi=noteToMidi(base); const f0=midiToFreq(baseMidi-12);
@@ -163,7 +192,7 @@
     return ()=>{ try{o1.stop();o2.stop();lfo1.stop();lfo2.stop();}catch{} };
   }
 
-  // ---------- KO33-style weird micro-samples ----------
+  // --- KO33-style micro-sample layer (quirky ear candy) ---
   function startKOWeird({bpm=84, swing=0.14, drive=0.5, base="A3", mode="dorian"}){
     const scale=MODES[mode]||MODES.dorian; const baseMidi=noteToMidi(base); const spb=60/bpm, six=spb/4;
     const pHit=clamp(drive/1.2,0,1)*0.35; let step=0, next=ctx.currentTime+0.03;
@@ -174,7 +203,7 @@
     return ()=>{ try{clearInterval(id);}catch{} };
   }
 
-  // ---------- kits ----------
+  // --- Pattern engines (kits) ---
   function startKO(cfg){ const {baseMidi, scale, steps, sixteenth, swingAmt, octaves, wave}=cfg;
     let step=0,next=ctx.currentTime+0.03;
     const timer=setInterval(()=>{ while(next<ctx.currentTime+0.25){ const t=next+(step%2?sixteenth*swingAmt:0);
@@ -205,18 +234,22 @@
     const timer=setInterval(()=>{ const deg=scale[Math.floor(Math.random()*scale.length)]; blip(ctx.currentTime+0.02, midiToFreq(baseMidi+deg), {wave:"sine", dur:spb*1.6, gain:0.12}); }, spb*1000);
     return {timer,stops:[()=>{try{o1.stop();o2.stop();}catch{}}]}; }
 
-  // ---------- play/stop ----------
+  // --- Global playback state ---
   let current={tile:null, timer:null, stops:[]};
 
+  // --- Stop playback and reset processing chain ---
   async function stopAudio(){
     if(current.timer) try{clearInterval(current.timer);}catch{};
     current.stops.forEach(fn=>{try{fn()}catch{}});
+    if (current.tile) setTilePlaying(current.tile, false);
     current={tile:null,timer:null,stops:[]};
+    resetAllTilesUI();
     await hardKillAll();
     await waitForSilence(0.012,160);
     rebuildDelay();
   }
 
+  // --- Restore output levels after starting a tile ---
   function restoreLevels(dust=0.03){
     if(!ctx) return;
     const now=ctx.currentTime;
@@ -224,15 +257,14 @@
     if(padBus){ padBus.gain.cancelScheduledValues(now); padBus.gain.linearRampToValueAtTime(clamp(dust,0,0.2)*1.4, now+0.08); }
   }
 
+  // --- Start playback for a specific tile and post settings ---
   async function startTile(tile, post){
     await ensureCtx(); await ctx.resume();
     await stopAudio();
 
-    // chain tuning from post
-    const crush = post.crush ?? 0.22;              // darker with higher crush
+    const crush = post.crush ?? 0.22;
     preLP.frequency.setValueAtTime(16000 - crush*3000, ctx.currentTime);
 
-    // scale/time
     const baseMidi = noteToMidi(post.base || "A3");
     const scale = MODES[post.mode || "dorian"] || MODES.dorian;
     const bpm = clamp(post.bpm ?? 84, 40, 140);
@@ -241,11 +273,11 @@
     const octaves = clamp(post.octaves ?? 2, 1, 3);
     const wave = post.waveform || "triangle";
 
-    // start kit
     const cfg = { baseMidi, scale, spb, steps, sixteenth, swingAmt, octaves, wave };
     const kit = (post.kit||"").toLowerCase().trim();
     let run=null;
-    if(!kit){ // no kit: melodic ticks
+
+    if(!kit){
       let step=0, next=ctx.currentTime+0.03;
       const timer=setInterval(()=>{ while(next<ctx.currentTime+0.25){ const t=next; const deg=scale[step%scale.length]; blip(t, midiToFreq(baseMidi+deg), {wave, dur:spb/2, gain:0.16}); step=(step+1)%steps; next+=spb/4; }},50);
       run={timer,stops:[]};
@@ -256,37 +288,58 @@
     else if(kit==="pad") run=startPAD(cfg);
     else if(kit==="drone") run=startDRONE(cfg);
 
-    // ambient pad + weird layer (levels from dust/drive)
-    const dust = clamp(post.dust ?? 0.02, 0, 0.2), drive = clamp(post.drive ?? 0.5, 0, 1.2);
+    const dust = clamp(post.dust ?? 0.02, 0, 0.2);
+    const drive = clamp(post.drive ?? 0.5, 0, 1.2);
     const stopPad   = startAmbientPad({hex:post.hex, base:post.base || "A3", level: dust*1.4});
     const stopWeird = startKOWeird({bpm, swing: swingAmt, drive, base: post.base || "A3", mode: post.mode || "dorian"});
 
     run.stops = (run.stops||[]).concat([stopPad, stopWeird]);
     current = { tile, timer: run.timer||null, stops: run.stops||[] };
+    setTilePlaying(tile, true);
     restoreLevels(dust);
   }
 
-  // ---------- tiles ----------
-  const grid=$("#grid");
+  // --- Date helper for fallback formatting ---
   function todayISO(){ const t=new Date(), y=t.getFullYear(), m=String(t.getMonth()+1).padStart(2,"0"), d=String(t.getDate()).padStart(2,"0"); return `${y}-${m}-${d}`; }
+
+  // --- Tile factory for a post object ---
+  const grid=$("#grid");
   function makeTile(post, idx){
     const tile=document.createElement("article"); tile.className="tile"; tile.dataset.idx=String(idx); tile.dataset.hex=post.hex; tile.dataset.date=post.date;
     const sw=document.createElement("div"); sw.className="swatch"; sw.style.background=post.hex;
-    const play=document.createElement("div"); play.className="play"; play.innerHTML=`<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7-11-7z"/></svg>`; sw.appendChild(play);
+    const play=document.createElement("div"); play.className="play"; play.innerHTML=PLAY_SVG; sw.appendChild(play);
     const meta=document.createElement("div"); meta.className="meta";
     const dEl=document.createElement("div"); dEl.className="date"; dEl.textContent=post.date;
     const hEl=document.createElement("div"); hEl.className="hex"; hEl.textContent=post.hex.toUpperCase();
     meta.append(dEl,hEl);
+
     sw.addEventListener("click", async ()=>{
-      ensureCtx(); await ctx.resume();
-      if(current.tile===tile){ await stopAudio(); tile.classList.remove("playing"); return; }
-      if(current.tile){ await stopAudio(); current.tile.classList.remove("playing"); }
-      await startTile(tile, post); tile.classList.add("playing");
+      if (playBusy) return;
+      playBusy = true;
+      try {
+        ensureCtx(); await ctx.resume();
+
+        if(current.tile===tile){
+          await stopAudio();
+          resetAllTilesUI();
+          return;
+        }
+        if(current.tile) setTilePlaying(current.tile,false);
+        await stopAudio();
+        resetAllTilesUI();
+
+        await startTile(tile, post);
+        setTilePlaying(tile,true);
+        current.tile = tile;
+      } finally {
+        playBusy = false;
+      }
     });
+
     tile.append(sw, meta); return tile;
   }
 
-  // ---------- data load ----------
+  // --- Load JSON, render tiles, and poll for updates ---
   fetch("data.json?v="+Date.now(), {cache:"no-store"})
     .then(r=>r.json())
     .then(data=>{
@@ -298,7 +351,6 @@
     })
     .catch(()=>{});
 
-  // live polling (optional)
   (function(){
     const POLL=60; let tag=null;
     async function headTag(){ try{ const r=await fetch("data.json",{method:"HEAD",cache:"no-store"}); return r.headers.get("etag") || r.headers.get("last-modified") || String(Math.random()); }catch{return null;} }
@@ -308,6 +360,6 @@
     setInterval(poll, POLL*1000); setTimeout(poll, 5000);
   })();
 
-  // expose mute toggle result
+  // --- Expose mute setter for external toggles if needed ---
   window.huewaveSetMuted = setMuted;
 })();
