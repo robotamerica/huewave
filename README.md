@@ -1,7 +1,8 @@
 This is a little non-language blog. It sets a mood with colour and sound, depending on how I am and 
-where I am during a given day/
+where I am during a given day. There are build guides in the huewave-guides folder if you are 
+interested in building something like this on your own.
 
-Here is how the sound works:
+Otherwise, here is how the sound works based on the data.json file in coordination with app.js:
  
     huewave :: data.json field guide
 
