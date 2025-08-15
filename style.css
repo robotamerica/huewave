@@ -71,16 +71,40 @@ main{ max-width:var(--grid-max); margin:18px auto; padding:0 16px 80px }
 /* play icon */
 .play{
   position:absolute; inset:auto; width:46px; height:46px;
-  border-radius:16px; border:1px solid var(--ring); background: color-mix(in oklab, var(--card) 75%, transparent);
+  border-radius:16px; border:1px solid var(--ring);
+  background: color-mix(in oklab, var(--card) 75%, transparent);
   display:grid; place-items:center;
   box-shadow: 0 6px 20px rgba(0,0,0,.18);
-  transition: transform .15s ease, background .2s ease, border-color .2s ease, opacity .2s ease;
+  /* smooth pop-in/pop-out transitions */
+  transition: transform .15s ease, opacity .2s ease, background .2s ease, border-color .2s ease;
   opacity:.95;
 }
 .tile:hover .play{ transform: translateY(-1px) }
 .tile .play svg{ width:18px; height:18px; stroke:var(--fg); stroke-width:1.8 }
-.tile.playing .play{ opacity:.35 }
 
+/* pressed look follows the actual pause icon (modern browsers) */
+.play:has(svg path[d^="M6 5h5v14H6z"]) {
+  opacity:.35;
+  transform: translateY(1px) scale(0.98);
+  transition: transform .15s ease, opacity .2s ease;
+}
+
+/* quick tactile feedback on tap-down */
+.play:active{
+  transform: translateY(1px) scale(0.98);
+  opacity:.9;
+}
+
+/* fallback for browsers without :has() — relies on .tile.playing class */
+@supports not(selector(:has(*))){
+  .tile.playing .play{
+    opacity:.35;
+    transform: translateY(1px) scale(0.98);
+    transition: transform .15s ease, opacity .2s ease;
+  }
+}
+
+/* metadata row */
 .meta{
   display:flex; align-items:center; justify-content:space-between; gap:8px;
   padding:10px 12px;
@@ -117,9 +141,9 @@ main{ max-width:var(--grid-max); margin:18px auto; padding:0 16px 80px }
 .sep{ opacity:.5 }
 @media (max-width:520px){
   .tickers{
-    font-size: 10px;
-    gap: 4px;
-    max-width: 50vw;
-    white-space: normal; /* allow wrap */
+    font-size:10px;
+    gap:4px;
+    max-width:50vw;
+    white-space:normal; /* allow wrap */
   }
 }
