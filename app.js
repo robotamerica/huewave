@@ -7,7 +7,6 @@
   const prefersDark = matchMedia("(prefers-color-scheme: dark)").matches;
   const savedTheme = localStorage.getItem(THEME_KEY);
   document.documentElement.setAttribute("data-theme", savedTheme || (prefersDark ? "dark" : "light"));
-
   $("#themeBtn")?.addEventListener("click", () => {
     const cur = document.documentElement.getAttribute("data-theme");
     const nxt = cur === "dark" ? "light" : "dark";
@@ -16,16 +15,24 @@
     const meta = document.querySelector('meta[name="theme-color"]');
     meta && meta.setAttribute("content", getComputedStyle(document.body).backgroundColor);
   });
-
   const toTop = $("#toTop");
   const onScroll = () => toTop?.classList.toggle("visible", window.scrollY > 240);
   toTop?.addEventListener("click", () => scrollTo({ top: 0, behavior: "smooth" }));
   document.addEventListener("scroll", onScroll, { passive: true }); onScroll();
 
-  // ---------- tickers ("mood" / "sound") ----------
-  const MOOD_WORDS = ["mood","estado","humeur","Stimmung","umore","humor","stemming","humör","humør","mieliala","nastrój","nálada","hangulat","stare","настроение","настрій","διάθεση","ruh hali","مزاج","מצב רוח","मूड","মুড","気分","기분","心情","聲情","tâm trạng","suasana","suasana hati","tunog? (mood)","moyo","አመለካከት"];
-  const SOUND_WORDS = ["sound","sonido","son","Klang","suono","som","geluid","ljud","lyd","ääni","dźwięk","zvuk","hang","sunet","звук","ήχος","ses","صوت","צליל","ध्वनि","শব্দ","音","소리","声音","聲音","âm thanh","bunyi","tunog","sauti","ድምፅ"];
-
+  // ---------- tickers (clean translations) ----------
+  const MOOD_WORDS = [
+    "mood","estado de ánimo","humeur","stimmung","umore","humor","stemming","humör","humør","mieliala",
+    "nastrój","nálada","hangulat","stare","настроение","настрій","διάθεση","ruh hali",
+    "مزاج","מצב רוח","मूड","মুড","気分","기분","心情","心情","tâm trạng","suasana","suasana hati",
+    "damdamin","sauti ya hisia","አመለካከት"
+  ];
+  const SOUND_WORDS = [
+    "sound","sonido","son","klang","suono","som","geluid","ljud","lyd","ääni",
+    "dźwięk","zvuk","hang","sunet","звук","звук","ήχος","ses",
+    "صوت","צליל","ध्वनि","শব্দ","音","소리","声音","聲音","âm thanh","bunyi",
+    "tunog","sauti","ድምፅ"
+  ];
   function cycleTicker(el, words, base = 2200, jitter = 900){
     if (!el) return;
     let i = Math.floor(Math.random() * words.length);
@@ -64,7 +71,6 @@
     if (ctx) return;
     ctx = new AudioCtx();
 
-    // Core processing
     sat = makeSaturator(1.3);
     lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 4200; lp.Q.value = 0.5;
     delay = ctx.createDelay(0.6);  delay.delayTime.value = 0.18;
@@ -73,38 +79,34 @@
     comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -18; comp.knee.value = 18; comp.ratio.value = 3; comp.attack.value = 0.006; comp.release.value = 0.16;
 
-    // Buses
-    bus = ctx.createGain(); bus.gain.value = 0.9; // music pre-master
-    master = ctx.createGain(); master.gain.value = muted ? 0.0 : 1.0; // MASTER controls everything
+    bus = ctx.createGain(); bus.gain.value = 0.9;
+    master = ctx.createGain(); master.gain.value = muted ? 0.0 : 1.0;
 
-    // Dust / hiss
+    // noise bed (looping)
     const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     const ch = buf.getChannelData(0); for (let i = 0; i < ch.length; i++) ch[i] = (Math.random() * 2 - 1) * 0.25;
     noiseBed = ctx.createBufferSource(); noiseBed.buffer = buf; noiseBed.loop = true;
     const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 700;
     noiseGain = ctx.createGain(); noiseGain.gain.value = 0.03;
 
-    // Music chain → comp → MASTER
+    // routing
     bus.connect(sat).connect(lp).connect(comp);
-    // Delay send
     sat.connect(delay).connect(delayWet).connect(comp);
     delay.connect(delayFB).connect(delay);
-    // Noise chain → MASTER
     noiseBed.connect(hp).connect(noiseGain).connect(master);
-    // Comp out → MASTER
     comp.connect(master);
-    // MASTER → destination
     master.connect(ctx.destination);
     noiseBed.start();
+
+    // resume on visibility (Android can suspend contexts)
+    document.addEventListener("visibilitychange", () => { if (ctx && ctx.state !== "running") ctx.resume(); });
   }
 
-  // Mute toggles MASTER so everything is silenced (music, crackle, tails)
   const setMuted = (v) => {
     muted = !!v;
     const now = ctx ? ctx.currentTime : 0;
     if (master) {
       master.gain.cancelScheduledValues(now);
-      master.gain.setValueAtTime(master.gain.value || (muted ? 0 : 1), now);
       master.gain.linearRampToValueAtTime(muted ? 0.0 : 1.0, now + 0.05);
     }
     $("#muteBtn svg") && ($("#muteBtn svg").style.opacity = muted ? 0.5 : 1);
@@ -136,8 +138,9 @@
   }
   const osc = (type="triangle", freq=220) => { const o = ctx.createOscillator(); o.type = type; o.frequency.value = freq; return o; };
   const localSat = (drive=1.4) => makeSaturator(1.0+drive);
+  const detunePair = f => [f*0.997, f*1.003];
 
-  // ---------- drum pieces ----------
+  // ---------- drums ----------
   function drumKick(t, vol=0.9){
     const g = makeEnv({a:0.002,d:0.09,s:0.0,r:0.22,gain:vol,t});
     const o = osc("sine", 150);
@@ -181,16 +184,14 @@
     const s = localSat(drive); g.connect(s).connect(bus);
     freqs.forEach(f=>{ const o=osc(wave,f); o.connect(g); o.start(t); o.stop(t+dur); });
   }
-  const detunePair = f => [f*0.997, f*1.003];
 
-  // ---------- kits (engines) ----------
+  // ---------- kits (run until toggled off) ----------
   function startKO(seed, cfg){
     const {baseMidi, scale, steps, sixteenth, swingAmt, octaves, wave} = cfg;
     const rnd = xorshift32(seed);
     const patKick  = Array.from({length:16}, (_,i)=> (i%4===0) || (rnd()>0.85 && i%2===0));
     const patSnare = Array.from({length:16}, (_,i)=> (i%8===4) || (rnd()>0.92 && i%4===2));
     const patHat   = Array.from({length:16}, (_,i)=> (i%2===0) || (rnd()>0.88));
-    const patMel   = Array.from({length:16}, (_,i)=> (i%2===0 && rnd()>0.2) || (rnd()>0.92));
     let step=0, nextTime=ctx.currentTime+0.03;
     const timer=setInterval(()=> {
       while (nextTime < ctx.currentTime + 0.25){
@@ -198,18 +199,17 @@
         if (patKick[step])  drumKick(t, 0.85);
         if (patSnare[step]) drumSnare(t, 0.5);
         if (patHat[step])   drumHat(t, 0.22);
-        if (patMel[step]) {
+        if (rnd()>0.55){
           const deg = scale[Math.floor(rnd()*scale.length)];
-          const oct = (Math.floor(rnd()*octaves)-Math.floor(octaves/2))*12;
+          const oct = (Math.floor(rnd()*2)-1)*12 * (octaves>1?1:0);
           const midi = clamp(baseMidi + deg + oct, 36, 96);
-          blip(t, midiToFreq(midi), {wave, dur:sixteenth*(Math.random()>0.7?2.0:1.2), gain:0.18+Math.random()*0.08, wobble:0.002+Math.random()*0.004, drive:0.6});
+          blip(t, midiToFreq(midi), {wave, dur:sixteenth*(rnd()>0.7?2.0:1.2), gain:0.18+Math.random()*0.08, wobble:0.002+Math.random()*0.004, drive:0.6});
         }
         step=(step+1)%steps; nextTime += sixteenth;
       }
     }, 50);
     return {timer, stops:[]};
   }
-
   function startJAZZ(seed, cfg){
     const {baseMidi, scale, sixteenth, swingAmt} = cfg;
     const rnd = xorshift32(seed);
@@ -235,7 +235,6 @@
     },50);
     return {timer, stops:[]};
   }
-
   function startLOFI(seed, cfg){
     const {baseMidi, scale, steps, sixteenth, swingAmt} = cfg;
     const rnd = xorshift32(seed);
@@ -249,16 +248,15 @@
         if (step%2===0 && Math.random()>0.25){
           const deg = scale[Math.floor(rnd()*scale.length)];
           const midi = clamp(baseMidi + deg + (Math.random()<0.5?0:12), 36, 90);
-          const [f1,f2]=detunePair(midiToFreq(midi));
-          blip(t, f1, {wave:"sine", dur:sixteenth*1.4, gain:0.16, wobble:0.003, drive:0.7});
-          blip(t+0.01, f2, {wave:"sine", dur:sixteenth*1.4, gain:0.12, wobble:0.003, drive:0.7});
+          const f = midiToFreq(midi);
+          blip(t, f*0.997, {wave:"sine", dur:sixteenth*1.4, gain:0.16, wobble:0.003, drive:0.7});
+          blip(t+0.01, f*1.003, {wave:"sine", dur:sixteenth*1.4, gain:0.12, wobble:0.003, drive:0.7});
         }
         step=(step+1)%steps; nextTime += sixteenth;
       }
     },50);
     return {timer, stops:[]};
   }
-
   function startARCADE(seed, cfg){
     const {baseMidi, scale, steps, sixteenth, swingAmt} = cfg;
     const rnd = xorshift32(seed);
@@ -279,8 +277,6 @@
     },50);
     return {timer, stops:[]};
   }
-
-  // ---------- ambient ----------
   function startPAD(seed, cfg){
     const {baseMidi, scale, spb} = cfg;
     const rnd = xorshift32(seed);
@@ -300,7 +296,6 @@
     lfo.start();
     return {timer, stops:[()=>lfo.stop()].concat(stops)};
   }
-
   function startDRONE(seed, cfg){
     const {baseMidi, scale, spb} = cfg;
     const rnd = xorshift32(seed);
@@ -310,14 +305,12 @@
     const s = localSat(0.5);
     o1.connect(g); o2.connect(g); g.connect(s).connect(bus);
     o1.start(); o2.start();
-
     const timer = setInterval(()=>{
       const deg = scale[Math.floor(rnd()*scale.length)];
       const midi = clamp(baseMidi + deg + 12, 48, 96);
       const f = midiToFreq(midi);
       blip(ctx.currentTime + 0.02, f, {wave:"sine", dur: spb*1.8, gain:0.12, wobble:0.002, drive:0.4});
     }, spb*1200);
-
     return {timer, stops:[()=>{ try{o1.stop();o2.stop();}catch(e){} }]};
   }
 
@@ -331,8 +324,7 @@
     const now = ctx.currentTime;
     if (master) {
       master.gain.cancelScheduledValues(now);
-      master.gain.setValueAtTime(master.gain.value, now);
-      master.gain.linearRampToValueAtTime(0.0, now + 0.06); // kill all audio quickly
+      master.gain.linearRampToValueAtTime(0.0, now + 0.06);
     }
   }
   function restoreLevels(dust=0.03){
@@ -348,16 +340,16 @@
 
   // ---------- dispatcher ----------
   function startKit(tile, post){
-    ensureCtx(); ctx.resume();
+    ensureCtx();
+    ctx.resume();
 
-    // chain params (defaults if missing)
+    // chain params
     const drive = post.drive ?? 0.6, crush = post.crush ?? 0.3, dust = post.dust ?? 0.03;
     sat = makeSaturator(1.2 + drive);
-    // reconnect: bus → sat → lp → comp (already wired), comp → MASTER, noise → MASTER
     lp.frequency.setValueAtTime(3800 - (crush*1200), ctx.currentTime);
     noiseGain.gain.setValueAtTime(dust, ctx.currentTime);
 
-    // timing/scale with safe fallbacks
+    // timing/scale
     const baseMidi = noteToMidi(post.base || "A3");
     const scale = MODES[post.mode || "dorian"] || MODES.dorian;
     const bpm = clamp(post.bpm ?? 84, 40, 140);
@@ -367,19 +359,19 @@
     const steps = clamp(post.steps ?? 16, 8, 32);
     const octaves = clamp(post.octaves ?? 2, 1, 3);
     const wave = (post.waveform || "triangle");
-
     const seed = strSeed((tile.dataset.hex||"")+(tile.dataset.date||"")+(post.kit||"")+(bpm)+wave);
     const cfg = { baseMidi, scale, spb, steps, sixteenth, swingAmt, octaves, wave };
 
     const kit = (post.kit || "").toLowerCase().trim();
-    if (!kit) return null;               // missing kit → intentional silence
+    if (!kit) return null;
+
     if (kit === "ko")     return startKO(seed, cfg);
     if (kit === "jazz")   return startJAZZ(seed, cfg);
     if (kit === "lofi")   return startLOFI(seed, cfg);
     if (kit === "arcade") return startARCADE(seed, cfg);
     if (kit === "pad")    return startPAD(seed, cfg);
     if (kit === "drone")  return startDRONE(seed, cfg);
-    return null; // unknown string → silence
+    return null;
   }
 
   // ---------- data + render ----------
@@ -388,32 +380,6 @@
     const t = new Date(), y = t.getFullYear(), m = String(t.getMonth()+1).padStart(2,"0"), d = String(t.getDate()).padStart(2,"0");
     return `${y}-${m}-${d}`;
   };
-
-  fetch("data.json?v=" + Date.now(), { cache: "no-store" })
-    .then(r => r.json())
-    .then(data => {
-      const posts = (data.posts || [])
-        .map(p => ({
-          date: p.date || todayISO(),
-          hex: p.hex,
-          base: p.base,
-          mode: p.mode,
-          bpm: p.bpm,
-          steps: p.steps,
-          octaves: p.octaves,
-          waveform: p.waveform,
-          swing: p.swing,
-          drive: p.drive,
-          crush: p.crush,
-          dust: p.dust,
-          kit: p.kit // may be undefined/empty → deliberate silence
-        }))
-        .filter(p => /^#[0-9a-fA-F]{6}$/.test(p.hex))
-        .sort((a,b)=> (a.date<b.date)?1:-1);
-
-      posts.forEach((p,i) => grid.appendChild(makeTile(p,i)));
-    })
-    .catch(() => { /* silent */ });
 
   function makeTile(post, idx){
     const tile = document.createElement("article");
@@ -438,11 +404,15 @@
     const toggle = async () => {
       ensureCtx(); await ctx.resume();
 
-      if (current.tile === tile) { hardStop(); return; }         // toggle OFF if same
-      const run = startKit(tile, post);                          // attempt to start this tile
-      if (!run) return;                                          // kit missing/unknown → do nothing
+      // if same tile → toggle OFF
+      if (current.tile === tile) { hardStop(); return; }
 
-      if (current.tile) hardStop();                              // stop previous
+      // always stop previous first, then start fresh (prevents "stuck" state)
+      if (current.tile) hardStop();
+
+      const run = startKit(tile, post);
+      if (!run) return; // silent/unknown kit
+
       current = { tile, timer: run.timer || null, stops: run.stops || [] };
       tile.classList.add("playing");
       restoreLevels(post.dust ?? 0.03);
@@ -451,4 +421,69 @@
     sw.addEventListener("click", toggle);
     tile.append(sw, meta); return tile;
   }
+
+  fetch("data.json?v=" + Date.now(), { cache: "no-store" })
+    .then(r => r.json())
+    .then(data => {
+      const posts = (data.posts || [])
+        .map(p => ({
+          date: p.date || todayISO(),
+          hex: p.hex,
+          base: p.base,
+          mode: p.mode,
+          bpm: p.bpm,
+          steps: p.steps,
+          octaves: p.octaves,
+          waveform: p.waveform,
+          swing: p.swing,
+          drive: p.drive,
+          crush: p.crush,
+          dust: p.dust,
+          kit: p.kit
+        }))
+        .filter(p => /^#[0-9a-fA-F]{6}$/.test(p.hex))
+        .sort((a,b)=> (a.date<b.date)?1:-1);
+
+      posts.forEach((p,i) => grid.appendChild(makeTile(p,i)));
+    })
+    .catch(() => { /* silent */ });
+
+  // --- live update polling for data.json ---
+  (() => {
+    const POLL_SEC = 60;
+    let lastTag = null;
+    async function headTag() {
+      try {
+        const r = await fetch("data.json", { method: "HEAD", cache: "no-store" });
+        return r.headers.get("etag") || r.headers.get("last-modified") || String(Date.now());
+      } catch { return null; }
+    }
+    async function loadData() {
+      const r = await fetch("data.json?v=" + Date.now(), { cache: "no-store" });
+      const data = await r.json();
+      return (data.posts || [])
+        .filter(p => /^#[0-9a-fA-F]{6}$/.test(p.hex))
+        .map(p => ({
+          date: p.date || (new Date()).toISOString().slice(0,10),
+          hex: p.hex, base: p.base, mode: p.mode, bpm: p.bpm, steps: p.steps,
+          octaves: p.octaves, waveform: p.waveform, swing: p.swing, drive: p.drive, crush: p.crush, dust: p.dust, kit: p.kit
+        }))
+        .sort((a,b)=> (a.date<b.date)?1:-1);
+    }
+    async function rerender(posts){
+      try { typeof hardStop === "function" && hardStop(); } catch {}
+      while (grid.firstChild) grid.removeChild(grid.firstChild);
+      posts.forEach((p,i) => grid.appendChild(makeTile(p,i)));
+    }
+    async function poll() {
+      const tag = await headTag();
+      if (!tag) return;
+      if (lastTag === null) { lastTag = tag; return; }
+      if (tag !== lastTag) {
+        try { const posts = await loadData(); await rerender(posts); lastTag = tag; } catch {}
+      }
+    }
+    setInterval(poll, POLL_SEC * 1000);
+    setTimeout(poll, 5000);
+  })();
 })();
