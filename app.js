@@ -55,9 +55,19 @@
 
   // ---------- audio core ----------
   let AudioCtx = window.AudioContext || window.webkitAudioContext;
-  let ctx, master, bus, comp, lp, sat, delay, noiseBed, noiseGain;
+  let ctx, master, bus, comp, lp, sat, delay, padBus;
   let current = { tile: null, timer: null, stops: [] };
   let muted = JSON.parse(localStorage.getItem("huewave/muted") || "false");
+
+  // palette helpers
+  function hexToHsl(hex){
+    const m=/^#?([0-9a-f]{6})$/i.exec(hex||""); if(!m) return {h:0,s:0,l:0.5};
+    const n=parseInt(m[1],16), r=((n>>16)&255)/255, g=((n>>8)&255)/255, b=(n&255)/255;
+    const max=Math.max(r,g,b), min=Math.min(r,g,b), l=(max+min)/2;
+    let h=0,s=0; if(max!==min){const d=max-min; s=l>0.5?d/(2-max-min):d/(max+min);
+      switch(max){case r:h=(g-b)/d+(g<b?6:0);break;case g:h=(b-r)/d+2;break;default:h=(r-g)/d+4;} h/=6;}
+    return {h,s,l};
+  }
 
   function makeSaturator(drive = 1.4) {
     const _ctx = ctx || new AudioCtx();
@@ -80,23 +90,17 @@
     comp.threshold.value = -18; comp.knee.value = 18; comp.ratio.value = 3; comp.attack.value = 0.006; comp.release.value = 0.16;
 
     bus = ctx.createGain(); bus.gain.value = 0.9;
+    padBus = ctx.createGain(); padBus.gain.value = 0.0; // ambient pad master
     master = ctx.createGain(); master.gain.value = muted ? 0.0 : 1.0;
 
-    // noise bed (looping)
-    const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
-    const ch = buf.getChannelData(0); for (let i = 0; i < ch.length; i++) ch[i] = (Math.random() * 2 - 1) * 0.25;
-    noiseBed = ctx.createBufferSource(); noiseBed.buffer = buf; noiseBed.loop = true;
-    const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 700;
-    noiseGain = ctx.createGain(); noiseGain.gain.value = 0.03;
-
     // routing
+    // padBus mixes into bus so pads go through same chain
+    padBus.connect(bus);
     bus.connect(sat).connect(lp).connect(comp);
     sat.connect(delay).connect(delayWet).connect(comp);
     delay.connect(delayFB).connect(delay);
-    noiseBed.connect(hp).connect(noiseGain).connect(master);
     comp.connect(master);
     master.connect(ctx.destination);
-    noiseBed.start();
 
     // resume on visibility (Android can suspend contexts)
     document.addEventListener("visibilitychange", () => { if (ctx && ctx.state !== "running") ctx.resume(); });
@@ -139,6 +143,83 @@
   const osc = (type="triangle", freq=220) => { const o = ctx.createOscillator(); o.type = type; o.frequency.value = freq; return o; };
   const localSat = (drive=1.4) => makeSaturator(1.0+drive);
   const detunePair = f => [f*0.997, f*1.003];
+
+  // ---------- NEW: Ambient Pad (color + dust) ----------
+  function startAmbientPad({hex="#6BCB77", base="A3", level=0.06}){
+    const {l} = hexToHsl(hex);
+    const cutoff = 300 + l*5000;       // darker→lower, brighter→airier
+    const detPct = 0.4 + (1-l)*0.8;    // darker→more detune
+    const baseMidi = noteToMidi(base);
+    const f0 = midiToFreq(clamp(baseMidi-12, 24, 72));
+    const o1 = osc("sine", f0*0.999), o2 = osc("triangle", f0*(1+detPct/100));
+    const pf = ctx.createBiquadFilter(); pf.type="lowpass"; pf.frequency.value = cutoff; pf.Q.value = 0.6;
+    const pan = ctx.createStereoPanner(); pan.pan.value = 0;
+    const g = ctx.createGain(); g.gain.value = level; // master for pad voice
+
+    // slow LFOs
+    const lfo1 = osc("sine", 0.05 + Math.random()*0.07); const lfoG1 = ctx.createGain(); lfoG1.gain.value = 0.6;    // pan
+    const lfo2 = osc("sine", 0.03 + Math.random()*0.05); const lfoG2 = ctx.createGain(); lfoG2.gain.value = 300+600*l; // cutoff wobble
+    lfo1.connect(lfoG1).connect(pan.pan);
+    lfo2.connect(lfoG2).connect(pf.frequency);
+
+    o1.connect(pf); o2.connect(pf);
+    pf.connect(pan).connect(g).connect(padBus);
+
+    const now = ctx.currentTime; [o1,o2,lfo1,lfo2].forEach(o=>o.start(now));
+
+    // stop hook
+    return () => { try{o1.stop();o2.stop();lfo1.stop();lfo2.stop();}catch{} };
+  }
+
+  // ---------- NEW: KO33-style weird micro-samples (drive + swing) ----------
+  function startKOWeird({bpm=84, swing=0.14, drive=0.5, base="A3", mode="dorian"}){
+    const scale = MODES[mode]||MODES.dorian;
+    const baseMidi = noteToMidi(base);
+    const spb = 60/bpm, six = spb/4;
+    // event probability ~ 0..35% scaled by drive (0..1.2)
+    const pHit = clamp(drive/1.2,0,1)*0.35;
+
+    let step=0, next=ctx.currentTime+0.03;
+    const id = setInterval(()=>{
+      while(next < ctx.currentTime + 0.25){
+        const t = next + (step%2 ? six*swing : 0);
+        if (Math.random() < pHit){
+          const pick = Math.random();
+          if (pick < 0.34) microPluck(t);
+          else if (pick < 0.68) formantChirp(t);
+          else bitNoiseTick(t);
+        }
+        step=(step+1)%16; next+=six;
+      }
+    }, 40);
+
+    function microPluck(t){
+      const deg = scale[Math.floor(Math.random()*scale.length)];
+      const midi = clamp(baseMidi + deg + (Math.random()<0.5?0:12), 36, 96);
+      const o = osc("square", midiToFreq(midi)*(1 + (Math.random()*0.006-0.003)));
+      const v = makeEnv({a:0.004,d:0.05,s:0.0,r:0.08,gain:0.16,t});
+      o.connect(v).connect(bus); o.start(t); o.stop(t+0.12);
+    }
+    function formantChirp(t){
+      const dur = 0.14;
+      const b = ctx.createBuffer(1, Math.ceil(dur*ctx.sampleRate), ctx.sampleRate);
+      const ch=b.getChannelData(0); for(let i=0;i<ch.length;i++) ch[i] = (Math.random()*2-1)*0.6;
+      const s=ctx.createBufferSource(); s.buffer=b;
+      const bp=ctx.createBiquadFilter(); bp.type="bandpass"; bp.Q.value=6;
+      bp.frequency.setValueAtTime(600,t); bp.frequency.exponentialRampToValueAtTime(1600,t+0.12);
+      const v=makeEnv({a:0.003,d:0.05,s:0.0,r:0.06,gain:0.12,t});
+      s.connect(bp).connect(v).connect(bus); s.start(t); s.stop(t+dur);
+    }
+    function bitNoiseTick(t){
+      const ws=ctx.createWaveShaper(); const N=128, c=new Float32Array(N);
+      for(let i=0;i<N;i++){ const x=(i/N)*2-1; c[i]=Math.sign(x)*Math.pow(Math.abs(x),0.3); } ws.curve=c;
+      const o=osc("sine", 1200 + Math.random()*800);
+      const v=makeEnv({a:0.001,d:0.02,s:0,r:0.03,gain:0.08,t});
+      o.connect(ws).connect(v).connect(bus); o.start(t); o.stop(t+0.06);
+    }
+
+    return () => { try{clearInterval(id);}catch{} };
+  }
 
   // ---------- drums ----------
   function drumKick(t, vol=0.9){
@@ -326,6 +407,8 @@
       master.gain.cancelScheduledValues(now);
       master.gain.linearRampToValueAtTime(0.0, now + 0.06);
     }
+    // fade padBus down to avoid tails
+    if (padBus) { padBus.gain.cancelScheduledValues(now); padBus.gain.linearRampToValueAtTime(0.0, now + 0.06); }
   }
   function restoreLevels(dust=0.03){
     if (!ctx) return;
@@ -335,7 +418,11 @@
       master.gain.setValueAtTime(0.0, now);
       master.gain.linearRampToValueAtTime(1.0, now + 0.08);
     }
-    noiseGain && (noiseGain.gain.cancelScheduledValues(now), noiseGain.gain.linearRampToValueAtTime(dust, now + 0.08));
+    // dust now = ambient pad level (subtle)
+    if (padBus) {
+      padBus.gain.cancelScheduledValues(now);
+      padBus.gain.linearRampToValueAtTime(clamp(dust,0,0.2)*1.4, now + 0.08);
+    }
   }
 
   // ---------- dispatcher ----------
@@ -343,11 +430,10 @@
     ensureCtx();
     ctx.resume();
 
-    // chain params
+    // chain params (audible now)
     const drive = post.drive ?? 0.6, crush = post.crush ?? 0.3, dust = post.dust ?? 0.03;
     sat = makeSaturator(1.2 + drive);
     lp.frequency.setValueAtTime(3800 - (crush*1200), ctx.currentTime);
-    noiseGain.gain.setValueAtTime(dust, ctx.currentTime);
 
     // timing/scale
     const baseMidi = noteToMidi(post.base || "A3");
@@ -365,13 +451,24 @@
     const kit = (post.kit || "").toLowerCase().trim();
     if (!kit) return null;
 
-    if (kit === "ko")     return startKO(seed, cfg);
-    if (kit === "jazz")   return startJAZZ(seed, cfg);
-    if (kit === "lofi")   return startLOFI(seed, cfg);
-    if (kit === "arcade") return startARCADE(seed, cfg);
-    if (kit === "pad")    return startPAD(seed, cfg);
-    if (kit === "drone")  return startDRONE(seed, cfg);
-    return null;
+    // main kit engine
+    let run = null;
+    if (kit === "ko")     run = startKO(seed, cfg);
+    else if (kit === "jazz")   run = startJAZZ(seed, cfg);
+    else if (kit === "lofi")   run = startLOFI(seed, cfg);
+    else if (kit === "arcade") run = startARCADE(seed, cfg);
+    else if (kit === "pad")    run = startPAD(seed, cfg);
+    else if (kit === "drone")  run = startDRONE(seed, cfg);
+    if (!run) return null;
+
+    // add Ambient Pad (level from dust) and KO33 weird (drive/swing)
+    const padLevel = clamp(dust,0,0.2)*1.4;
+    const stopPad = startAmbientPad({hex: post.hex, base: post.base || "A3", level: padLevel});
+    const stopWeird = startKOWeird({bpm, swing: swingAmt, drive, base: post.base || "A3", mode: post.mode || "dorian"});
+
+    run.stops = (run.stops || []).concat([stopPad, stopWeird]);
+
+    return run;
   }
 
   // ---------- data + render ----------
@@ -407,11 +504,11 @@
       // if same tile → toggle OFF
       if (current.tile === tile) { hardStop(); return; }
 
-      // always stop previous first, then start fresh (prevents "stuck" state)
+      // stop previous first, then start fresh
       if (current.tile) hardStop();
 
       const run = startKit(tile, post);
-      if (!run) return; // silent/unknown kit
+      if (!run) return;
 
       current = { tile, timer: run.timer || null, stops: run.stops || [] };
       tile.classList.add("playing");
