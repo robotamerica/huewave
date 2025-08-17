@@ -1,5 +1,20 @@
 {
   "posts": [
+        {
+      "date": "2025-08-17",
+      "hex": "#C19A6B",
+      "base": "E4",
+      "mode": "lydian",
+      "bpm": 40,
+      "steps": 8,
+      "octaves": 2,
+      "waveform": "sawtooth",
+      "swing": 9,
+      "drive": 0.6,
+      "crush": 0.22,
+      "dust": 0.6,
+      "kit": "drone"
+    },
           {
       "date": "2025-08-16",
       "hex": "#87b6f5",
