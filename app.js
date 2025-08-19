@@ -550,4 +550,3 @@
   // --- Expose mute setter for external toggles if needed ---
   window.huewaveSetMuted = setMuted;
 })();
-```0
