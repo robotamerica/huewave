@@ -67,7 +67,14 @@
   const NOTE_INDEX={C:0,"C#":1,Db:1,D:2,"D#":3,Eb:3,E:4,F:5,"F#":6,Gb:6,G:7,"G#":8,Ab:8,A:9,"A#":10,Bb:10,B:11};
   const A4=440,A4_MIDI=69, midiToFreq=m=>A4*Math.pow(2,(m-A4_MIDI)/12);
   function noteToMidi(n="A3"){ const m=/^([A-G](?:#|b)?)\s*(-?\d+)$/.exec(String(n).trim()); if(!m) return 57; const[,nm,o]=m; return (parseInt(o,10)+1)*12+(NOTE_INDEX[nm]??9); }
-  const MODES={ionian:[0,2,4,5,7,9,11],dorian:[0,2,3,5,7,9,10],phrygian:[0,1,3,5,7,8,10],lydian:[0,2,4,6,7,9,11],mixolydian:[0,2,4,5,7,9,10],aeolian:[0,2,3,5,7,8,10],locrian:[0,1,3,5,6,8,10],pent_major:[0,2,4,7,9],pent_minor:[0,3,5,7,10]};
+  const MODES={
+    ionian:[0,2,4,5,7,9,11],dorian:[0,2,3,5,7,9,10],phrygian:[0,1,3,5,7,8,10],lydian:[0,2,4,6,7,9,11],
+    mixolydian:[0,2,4,5,7,9,10],aeolian:[0,2,3,5,7,8,10],locrian:[0,1,3,5,6,8,10],
+    pent_major:[0,2,4,7,9],pent_minor:[0,3,5,7,10],
+    // NEW modes
+    harm_minor:[0,2,3,5,7,8,11], mel_minor:[0,2,3,5,7,9,11],
+    whole_tone:[0,2,4,6,8,10], octatonic:[0,2,3,5,6,8,9,11], blues_minor:[0,3,5,6,7,10]
+  };
   const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 
   // --- Audio graph: matches studio chain exactly ---
@@ -167,14 +174,101 @@
   // --- Oscillator constructor ---
   function osc(type,f){ const o=regE(ctx.createOscillator()); o.type=type; o.frequency.value=f; return o; }
 
+  // === NEW: extra source builders (noise & pulse) ===
+  function noiseSrc(dur=0.2){
+    const b = ctx.createBuffer(1, Math.ceil(dur*ctx.sampleRate), ctx.sampleRate);
+    const ch = b.getChannelData(0);
+    for (let i=0;i<ch.length;i++) ch[i] = Math.random()*2-1;
+    const s = regE(ctx.createBufferSource());
+    s.buffer = b;
+    return s;
+  }
+  function oscPulse(freq, duty=0.22){
+    const o = ctx.createOscillator();
+    const N=32, real=new Float32Array(N), imag=new Float32Array(N);
+    for(let n=1;n<N;n++){
+      const a=(2/(n*Math.PI)) * Math.sin(n*Math.PI*duty);
+      real[n]=0; imag[n]=a;
+    }
+    o.setPeriodicWave(ctx.createPeriodicWave(real, imag, {disableNormalization:false}));
+    o.frequency.value=f;
+    return regE(o);
+  }
+
   // --- Drum voices (kick, snare, hat) ---
   function kick(t,v=0.72){ const g=env(t,0.002,0.08,0,0.18,v); const o=osc("sine",150); o.frequency.setValueAtTime(150,t); o.frequency.exponentialRampToValueAtTime(42,t+0.16); o.connect(g).connect(bus); o.start(t); o.stop(t+0.3); }
   function snare(t,v=0.42){ const dur=0.16; const b=regE(ctx.createBuffer(1,Math.ceil(dur*ctx.sampleRate),ctx.sampleRate)); const ch=b.getChannelData(0); for(let i=0;i<ch.length;i++) ch[i]=Math.random()*2-1; const s=regE(ctx.createBufferSource()); s.buffer=b; const hp=regE(ctx.createBiquadFilter()); hp.type="highpass"; hp.frequency.value=1500; const bp=regE(ctx.createBiquadFilter()); bp.type="bandpass"; bp.frequency.value=1400; bp.Q.value=0.9; const g=env(t,0.001,dur*0.6,0,dur*0.6,v); s.connect(hp).connect(bp).connect(g).connect(bus); s.start(t); s.stop(t+dur); }
   function hat(t,v=0.14,closed=true){ const dur=closed?0.05:0.18; const b=regE(ctx.createBuffer(1,Math.ceil(dur*ctx.sampleRate),ctx.sampleRate)); const ch=b.getChannelData(0); for(let i=0;i<ch.length;i++) ch[i]=Math.random()*2-1; const s=regE(ctx.createBufferSource()); s.buffer=b; const hp=regE(ctx.createBiquadFilter()); hp.type="highpass"; hp.frequency.value=7000; const g=env(t,0.001,closed?0.02:0.05,closed?0:0.3,closed?0.03:0.12,v); s.connect(hp).connect(g).connect(bus); s.start(t); s.stop(t+dur); }
 
-  // --- Melodic note and chord builders ---
-  function blip(t,f,{wave="triangle",dur=0.22,gain=0.18,wobble=0.0025}={}){ const o=osc(wave,f); const l=osc("sine",5.1); const lg=regE(ctx.createGain()); lg.gain.value=f*wobble; l.connect(lg).connect(o.frequency); const g=env(t,0.01,dur*0.4,0.55,Math.max(0.1,dur*0.55),gain); o.connect(g).connect(bus); o.start(t); l.start(t); o.stop(t+dur+0.05); l.stop(t+dur+0.05); }
+  // === NEW: extra percussion & tones ===
+  function clap(t, v=0.28){
+    const hits = [0, 0.012, 0.026, 0.05];
+    hits.forEach((off,i)=>{
+      const dur = 0.12 - i*0.015;
+      const s = noiseSrc(dur);
+      const hp = regE(ctx.createBiquadFilter()); hp.type="highpass"; hp.frequency.value=1800;
+      const bp = regE(ctx.createBiquadFilter()); bp.type="bandpass"; bp.frequency.value=2200; bp.Q.value=0.7;
+      const g  = env(t+off, 0.002, 0.04, 0, 0.06, v*(1-i*0.12));
+      s.connect(hp).connect(bp).connect(g).connect(bus);
+      s.start(t+off); s.stop(t+off+dur);
+    });
+  }
+  function tom(t, pitch=180, v=0.26){
+    const o = osc("sine", pitch);
+    o.frequency.setValueAtTime(pitch, t);
+    o.frequency.exponentialRampToValueAtTime(pitch*0.76, t+0.18);
+    const g = env(t, 0.002, 0.12, 0, 0.18, v);
+    o.connect(g).connect(bus); o.start(t); o.stop(t+0.32);
+  }
+  function shaker(t, v=0.12){
+    const dur=0.06, s=noiseSrc(dur);
+    const hp=regE(ctx.createBiquadFilter()); hp.type="highpass"; hp.frequency.value=6000;
+    const g=env(t, 0.001, 0.02, 0, 0.05, v);
+    s.connect(hp).connect(g).connect(bus); s.start(t); s.stop(t+dur);
+  }
+
+  // --- Melodic note and chord builders (extended) ---
+  function blip(t,f,{wave="triangle",dur=0.22,gain=0.18,wobble=0.0025,duty=0.22}={}){ 
+    let source;
+    if (wave === "noise") {
+      source = noiseSrc(dur);
+    } else if (wave === "pulse") {
+      source = oscPulse(f, duty);
+    } else {
+      // includes standard: sine/triangle/square and also "sawtooth"
+      source = osc(wave, f);
+    }
+    // vibrato for tonal sources
+    if (wave !== "noise") {
+      const l = osc("sine", 5.1);
+      const lg = regE(ctx.createGain()); lg.gain.value = f*wobble;
+      l.connect(lg).connect(source.frequency);
+      l.start(t); l.stop(t+dur+0.05);
+    }
+    const g=env(t,0.01,dur*0.4,0.55,Math.max(0.1,dur*0.55),gain);
+    source.connect(g).connect(bus);
+    source.start?.(t);
+    source.stop?.(t+dur+0.05);
+  }
   function chord(t,fs,{wave="triangle",gain=0.15,dur=0.4}={}){ const g=env(t,0.012,0.12,0.45,0.26,gain); g.connect(bus); fs.forEach(f=>{ const o=osc(wave,f); o.connect(g); o.start(t); o.stop(t+dur); }); }
+
+  // === NEW: bass & FM blip ===
+  function bassNote(t, f, v=0.22){
+    const o = osc("sawtooth", f);
+    const lp = regE(ctx.createBiquadFilter()); lp.type="lowpass"; lp.frequency.value = Math.min(2200, f*3);
+    const eg = env(t, 0.005, 0.12, 0.5, 0.2, v);
+    o.connect(lp).connect(eg).connect(bus); o.start(t); o.stop(t+0.35);
+  }
+  function fmBlip(t, f, v=0.16){
+    const car = osc("sine", f);
+    const mod = osc("sine", f*2.01);
+    const mg  = regE(ctx.createGain()); mg.gain.value = f*0.9;
+    mod.connect(mg).connect(car.frequency);
+    const eg = env(t, 0.004, 0.06, 0.4, 0.14, v);
+    car.connect(eg).connect(bus);
+    const stopAt = t+0.24;
+    car.start(t); mod.start(t); car.stop(stopAt); mod.stop(stopAt);
+  }
 
   // --- Ambient pad generator (stereo, color-aware) ---
   function startAmbientPad({hex="#6BCB77", base="A3", level=0.08}){
@@ -201,6 +295,19 @@
     function formantChirp(t){ const dur=0.14; const b=regE(ctx.createBuffer(1,Math.ceil(dur*ctx.sampleRate),ctx.sampleRate)); const ch=b.getChannelData(0); for(let i=0;i<ch.length;i++) ch[i]=(Math.random()*2-1)*0.6; const s=regE(ctx.createBufferSource()); s.buffer=b; const bp=regE(ctx.createBiquadFilter()); bp.type="bandpass"; bp.Q.value=6; bp.frequency.setValueAtTime(600,t); bp.frequency.exponentialRampToValueAtTime(1600,t+0.12); const v=env(t,0.003,0.05,0,0.06,0.12); s.connect(bp).connect(v).connect(bus); s.start(t); s.stop(t+dur); }
     function bitNoiseTick(t){ const ws=regE(ctx.createWaveShaper()); const N=128,c=new Float32Array(N); for(let i=0;i<N;i++){ const x=(i/N)*2-1; c[i]=Math.sign(x)*Math.pow(Math.abs(x),0.3);} ws.curve=c; const o=osc("sine",1200+Math.random()*800); const v=env(t,0.001,0.02,0,0.03,0.08); o.connect(ws).connect(v).connect(bus); o.start(t); o.stop(t+0.06); }
     return ()=>{ try{clearInterval(id);}catch{} };
+  }
+
+  // === NEW: Euclidean rhythm helper ===
+  function euclid(k, n){
+    const a = Array(k).fill([1]), b = Array(n-k).fill([0]);
+    let A=a, B=b;
+    while (B.length && A.length > 1) {
+      const m = Math.min(A.length, B.length);
+      for (let i=0;i<m;i++) A[i] = A[i].concat(B[i]);
+      B.splice(0, m);
+      if (A.length>m) A = A.slice(0, m).concat(A.slice(m).map(x=>[...x]));
+    }
+    return A.flat(Infinity);
   }
 
   // --- Pattern engines (kits) ---
@@ -233,6 +340,81 @@
     o1.connect(g); o2.connect(g); g.connect(bus); o1.start(); o2.start();
     const timer=setInterval(()=>{ const deg=scale[Math.floor(Math.random()*scale.length)]; blip(ctx.currentTime+0.02, midiToFreq(baseMidi+deg), {wave:"sine", dur:spb*1.6, gain:0.12}); }, spb*1000);
     return {timer,stops:[()=>{try{o1.stop();o2.stop();}catch{}}]}; }
+
+  // === NEW kits ===
+  function startBASS(cfg){
+    const { baseMidi, scale, steps, sixteenth, swingAmt } = cfg;
+    let step=0, next=ctx.currentTime+0.03;
+    const timer = setInterval(()=>{
+      while(next < ctx.currentTime+0.25){
+        const t = next + (step%2 ? sixteenth*swingAmt : 0);
+        if(step%4===0) kick(t,0.72);
+        if(step%8===4) clap(t,0.28);
+        if(step%2===0) shaker(t,0.10);
+        if(step%2===0){
+          const deg = scale[(Math.floor(step/2)) % scale.length];
+          const f   = midiToFreq(baseMidi + deg - 12);
+          bassNote(t, f, 0.22);
+        }
+        if(step%16===12) tom(t+sixteenth*0.5, midiToFreq(baseMidi-5), 0.18);
+        step = (step+1) % steps;
+        next += sixteenth;
+      }
+    }, 50);
+    return { timer, stops:[] };
+  }
+  function startCHIP(cfg){
+    const { baseMidi, scale, steps, sixteenth, swingAmt } = cfg;
+    let step=0, next=ctx.currentTime+0.03;
+    const timer = setInterval(()=>{
+      while(next < ctx.currentTime+0.25){
+        const t = next + (step%2 ? sixteenth*swingAmt : 0);
+        if(step%2===0) hat(t,0.10,true);
+        if(step%2===0){
+          const deg = scale[(step/2) % scale.length];
+          const f   = midiToFreq(baseMidi + deg + (Math.random()>0.7?12:0));
+          blip(t, f, { wave:"square", dur:sixteenth*1.0, gain:0.15 });
+          if(Math.random()<0.35) blip(t+sixteenth*0.5, f*1.5, { wave:"pulse", dur:0.12, gain:0.11, duty:0.18 });
+        }
+        if(Math.random()<0.15) fmBlip(t + sixteenth*0.25, midiToFreq(baseMidi + 24), 0.10);
+        step = (step+1) % steps; next += sixteenth;
+      }
+    }, 50);
+    return { timer, stops:[] };
+  }
+  function startEUCLID(cfg){
+    const { baseMidi, scale, steps, sixteenth, swingAmt } = cfg;
+    const hatPat = euclid(11, steps);
+    const snrPat = euclid(4,  steps);
+    let step=0, next=ctx.currentTime+0.03;
+    const timer = setInterval(()=>{
+      while(next < ctx.currentTime+0.25){
+        const t = next + (step%2 ? sixteenth*swingAmt : 0);
+        if(hatPat[step]) shaker(t, 0.11);
+        if(step%4===0) kick(t, 0.7);
+        if(snrPat[step]) clap(t, 0.26);
+        if(step%2===0){
+          const deg = scale[(step/2) % scale.length];
+          const f = midiToFreq(baseMidi + deg + (Math.random()>0.6?12:0));
+          blip(t, f, { wave:"triangle", dur:sixteenth*1.2, gain:0.15 });
+        }
+        step = (step+1)%steps; next+=sixteenth;
+      }
+    }, 50);
+    return { timer, stops:[] };
+  }
+  function startAMBIENT2(cfg){
+    const { baseMidi, scale, spb } = cfg;
+    let next = ctx.currentTime + 0.05;
+    const timer = setInterval(()=>{
+      while(next < ctx.currentTime+0.5){
+        const deg = scale[Math.floor(Math.random()*scale.length)];
+        fmBlip(next, midiToFreq(baseMidi + deg + 12), 0.12);
+        next += spb * 1.5;
+      }
+    }, 200);
+    return { timer, stops:[] };
+  }
 
   // --- Global playback state ---
   let current={tile:null, timer:null, stops:[]};
@@ -287,6 +469,11 @@
     else if(kit==="arcade") run=startARCADE(cfg);
     else if(kit==="pad") run=startPAD(cfg);
     else if(kit==="drone") run=startDRONE(cfg);
+    // NEW kits
+    else if(kit==="bass") run=startBASS(cfg);
+    else if(kit==="chip") run=startCHIP(cfg);
+    else if(kit==="euclid") run=startEUCLID(cfg);
+    else if(kit==="ambient2") run=startAMBIENT2(cfg);
 
     const dust = clamp(post.dust ?? 0.02, 0, 0.2);
     const drive = clamp(post.drive ?? 0.5, 0, 1.2);
@@ -363,3 +550,4 @@
   // --- Expose mute setter for external toggles if needed ---
   window.huewaveSetMuted = setMuted;
 })();
+```0
