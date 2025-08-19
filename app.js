@@ -11,11 +11,9 @@
     const btn = tile.querySelector(".play");
     if (btn) btn.innerHTML = isOn ? PAUSE_SVG : PLAY_SVG;
   }
-  // Reset UI state for all tiles marked as playing
   function resetAllTilesUI() {
     document.querySelectorAll(".tile.playing").forEach(t => setTilePlaying(t, false));
   }
-  // Prevent overlapping play/stop sequences under rapid taps
   let playBusy = false;
 
   // --- Theme, to-top, and mute state ---
@@ -77,35 +75,49 @@
   };
   const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 
-  // --- Audio graph: matches studio chain exactly ---
+  // --- Audio graph: matches studio chain exactly (with fallbacks) ---
   let AudioCtx = window.AudioContext||window.webkitAudioContext;
   let ctx=null, bus=null, preLP=null, agc=null, comp=null, limiter=null, dcBlock=null, master=null, analyser=null;
   let delay=null, delayWet=null, fbHP=null, fbGain=null, padBus=null;
 
-  // --- Registry of ephemeral nodes for clean teardown ---
   const EPHEM=new Set(); const regE=n=>(n&&n.connect&&EPHEM.add(n),n);
 
-  // --- Mute state with smooth ramping ---
+  function makeCompressor(){
+    try {
+      return new DynamicsCompressorNode(ctx,{threshold:-18,knee:18,ratio:3,attack:0.006,release:0.16});
+    } catch {
+      const c = ctx.createDynamicsCompressor?.() || {threshold:{},knee:{},ratio:{},attack:{},release:{}, connect(){}};
+      try { c.threshold.value=-18; c.knee.value=18; c.ratio.value=3; c.attack.value=0.006; c.release.value=0.16; } catch {}
+      return c;
+    }
+  }
+  function makeStereoPanner(){
+    if (typeof ctx.createStereoPanner === "function") return ctx.createStereoPanner();
+    // fallback: a gain node with a dummy pan param to avoid crashes
+    const g = ctx.createGain();
+    g.pan = { value:0, set value(_) {}, setValueAtTime(){}, linearRampToValueAtTime(){}, cancelScheduledValues(){} };
+    return g;
+  }
+
   function setMuted(v){
     muted=!!v;
-    if(master && ctx){ const t=ctx.currentTime; master.gain.cancelScheduledValues(t); master.gain.linearRampToValueAtTime(muted?0.0:0.96, t+0.06); }
+    if(master && ctx){ const t=ctx.currentTime; try{ master.gain.cancelScheduledValues(t); master.gain.linearRampToValueAtTime(muted?0.0:0.96, t+0.06);}catch{} }
     localStorage.setItem("huewave/muted", JSON.stringify(muted));
     const icon=$("#muteBtn svg"); if(icon) icon.style.opacity=muted?0.5:1;
   }
   setMuted(muted);
 
-  // --- Soft limiter waveshaper (safety ceiling) ---
   function makeLimiter(){ const ws=ctx.createWaveShaper(); const N=2048,c=new Float32Array(N);
     for(let i=0;i<N;i++){ const x=(i/(N-1))*2-1; c[i]=Math.max(-0.985, Math.min(0.985, x)); } ws.curve=c; ws.oversample="4x"; return ws; }
 
-  // --- Ensure AudioContext and core chain exist and run ---
   async function ensureCtx(){
     if(ctx){ if(ctx.state!=="running"){ try{await ctx.resume();}catch{} } return; }
-    ctx=new AudioCtx({latencyHint:"interactive"});
+    try{ ctx=new AudioCtx({latencyHint:"interactive"}); }catch{ ctx=new AudioCtx(); }
+
     bus    = ctx.createGain();        bus.gain.value=0.9;
     preLP  = ctx.createBiquadFilter();preLP.type="lowpass"; preLP.frequency.value=16000; preLP.Q.value=0.5;
     agc    = ctx.createGain();        agc.gain.value=1.0;
-    comp   = new DynamicsCompressorNode(ctx,{threshold:-18,knee:18,ratio:3,attack:0.006,release:0.16});
+    comp   = makeCompressor();
     limiter= makeLimiter();
     dcBlock= ctx.createBiquadFilter();dcBlock.type="highpass"; dcBlock.frequency.value=25;
     master = ctx.createGain();        master.gain.value = muted?0.0:0.96;
@@ -117,14 +129,12 @@
     limiter.connect(analyser);
 
     rebuildDelay();
-    document.addEventListener("visibilitychange",()=>{ if(ctx && ctx.state!=="running") ctx.resume(); });
+    document.addEventListener("visibilitychange",()=>{ if(ctx && ctx.state!=="running") ctx.resume().catch(()=>{}); });
   }
 
-  // --- Gentle pre-delay saturator for thickness without harshness ---
   function makePreDelaySat(drive=1.04){ const ws=regE(ctx.createWaveShaper()); const N=1024,c=new Float32Array(N);
     for(let i=0;i<N;i++){ const x=(i/N)*2-1; c[i]=Math.tanh(x*drive);} ws.curve=c; ws.oversample="2x"; return ws; }
 
-  // --- Delay loop builder with feedback and wet mix ---
   function rebuildDelay(){
     if(!ctx) return;
     try{ delay && delay.disconnect(); delayWet && delayWet.disconnect(); fbHP && fbHP.disconnect(); fbGain && fbGain.disconnect(); }catch{}
@@ -139,12 +149,10 @@
     delay.connect(fbHP).connect(fbGain).connect(delay);
   }
 
-  // --- Output RMS meter for AGC ---
   const buf=new Uint8Array(2048);
   function rmsNow(){ if(!analyser) return 0; analyser.getByteTimeDomainData(buf); let s=0; for(let i=0;i<buf.length;i++){ const v=(buf[i]-128)/128; s+=v*v; } return Math.sqrt(s/buf.length); }
-  setInterval(()=>{ if(!ctx||!agc) return; const r=rmsNow(), target=0.17; if(r>target && agc.gain.value>0.8){ const t=ctx.currentTime; agc.gain.setValueAtTime(Math.max(0.8, agc.gain.value-0.02), t); } }, 250);
+  setInterval(()=>{ if(!ctx||!agc) return; const r=rmsNow(), target=0.17; if(r>target && agc.gain.value>0.8){ const t=ctx.currentTime; try{ agc.gain.setValueAtTime(Math.max(0.8, agc.gain.value-0.02), t);}catch{} } }, 250);
 
-  // --- Wait until output is quiet to avoid tail buildup ---
   function waitForSilence(th=0.012, hold=160, timeout=900){
     const start=performance.now(); let ok=0;
     return new Promise(res=>{
@@ -155,7 +163,6 @@
     });
   }
 
-  // --- Stop and disconnect all ephemeral nodes ---
   async function hardKillAll(){
     if(!ctx) return;
     const now=ctx.currentTime;
@@ -169,7 +176,9 @@
   }
 
   // --- Envelope generator (ADSR) ---
-  function env(t,a=0.006,d=0.06,s=0.6,r=0.14,g=0.22){ const gn=regE(ctx.createGain()); gn.gain.setValueAtTime(0.0001,t); gn.gain.linearRampToValueAtTime(g,t+a); gn.gain.linearRampToValueAtTime(g*s,t+a+d); gn.gain.exponentialRampToValueAtTime(0.0001,t+a+d+r); return gn; }
+  function env(t,a=0.006,d=0.06,s=0.6,r=0.14,g=0.22){ const gn=regE(ctx.createGain()); try{
+    gn.gain.setValueAtTime(0.0001,t); gn.gain.linearRampToValueAtTime(g,t+a); gn.gain.linearRampToValueAtTime(g*s,t+a+d); gn.gain.exponentialRampToValueAtTime(0.0001,t+a+d+r);
+  }catch{} return gn; }
 
   // --- Oscillator constructor ---
   function osc(type,f){ const o=regE(ctx.createOscillator()); o.type=type; o.frequency.value=f; return o; }
@@ -196,7 +205,9 @@
   }
 
   // --- Drum voices (kick, snare, hat) ---
-  function kick(t,v=0.72){ const g=env(t,0.002,0.08,0,0.18,v); const o=osc("sine",150); o.frequency.setValueAtTime(150,t); o.frequency.exponentialRampToValueAtTime(42,t+0.16); o.connect(g).connect(bus); o.start(t); o.stop(t+0.3); }
+  function kick(t,v=0.72){ const g=env(t,0.002,0.08,0,0.18,v); const o=osc("sine",150); try{
+    o.frequency.setValueAtTime(150,t); o.frequency.exponentialRampToValueAtTime(42,t+0.16);
+  }catch{} o.connect(g).connect(bus); o.start(t); o.stop(t+0.3); }
   function snare(t,v=0.42){ const dur=0.16; const b=regE(ctx.createBuffer(1,Math.ceil(dur*ctx.sampleRate),ctx.sampleRate)); const ch=b.getChannelData(0); for(let i=0;i<ch.length;i++) ch[i]=Math.random()*2-1; const s=regE(ctx.createBufferSource()); s.buffer=b; const hp=regE(ctx.createBiquadFilter()); hp.type="highpass"; hp.frequency.value=1500; const bp=regE(ctx.createBiquadFilter()); bp.type="bandpass"; bp.frequency.value=1400; bp.Q.value=0.9; const g=env(t,0.001,dur*0.6,0,dur*0.6,v); s.connect(hp).connect(bp).connect(g).connect(bus); s.start(t); s.stop(t+dur); }
   function hat(t,v=0.14,closed=true){ const dur=closed?0.05:0.18; const b=regE(ctx.createBuffer(1,Math.ceil(dur*ctx.sampleRate),ctx.sampleRate)); const ch=b.getChannelData(0); for(let i=0;i<ch.length;i++) ch[i]=Math.random()*2-1; const s=regE(ctx.createBufferSource()); s.buffer=b; const hp=regE(ctx.createBiquadFilter()); hp.type="highpass"; hp.frequency.value=7000; const g=env(t,0.001,closed?0.02:0.05,closed?0:0.3,closed?0.03:0.12,v); s.connect(hp).connect(g).connect(bus); s.start(t); s.stop(t+dur); }
 
@@ -215,8 +226,10 @@
   }
   function tom(t, pitch=180, v=0.26){
     const o = osc("sine", pitch);
-    o.frequency.setValueAtTime(pitch, t);
-    o.frequency.exponentialRampToValueAtTime(pitch*0.76, t+0.18);
+    try{
+      o.frequency.setValueAtTime(pitch, t);
+      o.frequency.exponentialRampToValueAtTime(pitch*0.76, t+0.18);
+    }catch{}
     const g = env(t, 0.002, 0.12, 0, 0.18, v);
     o.connect(g).connect(bus); o.start(t); o.stop(t+0.32);
   }
@@ -235,20 +248,17 @@
     } else if (wave === "pulse") {
       source = oscPulse(f, duty);
     } else {
-      // includes standard: sine/triangle/square and also "sawtooth"
       source = osc(wave, f);
     }
-    // vibrato for tonal sources
-    if (wave !== "noise") {
-      const l = osc("sine", 5.1);
+    if (wave !== "noise" && source.frequency){
+      const l = osc("sine",5.1);
       const lg = regE(ctx.createGain()); lg.gain.value = f*wobble;
-      l.connect(lg).connect(source.frequency);
+      l.connect(lg); try{ lg.connect(source.frequency); }catch{}
       l.start(t); l.stop(t+dur+0.05);
     }
     const g=env(t,0.01,dur*0.4,0.55,Math.max(0.1,dur*0.55),gain);
     source.connect(g).connect(bus);
-    source.start?.(t);
-    source.stop?.(t+dur+0.05);
+    source.start?.(t); source.stop?.(t+dur+0.05);
   }
   function chord(t,fs,{wave="triangle",gain=0.15,dur=0.4}={}){ const g=env(t,0.012,0.12,0.45,0.26,gain); g.connect(bus); fs.forEach(f=>{ const o=osc(wave,f); o.connect(g); o.start(t); o.stop(t+dur); }); }
 
@@ -263,7 +273,7 @@
     const car = osc("sine", f);
     const mod = osc("sine", f*2.01);
     const mg  = regE(ctx.createGain()); mg.gain.value = f*0.9;
-    mod.connect(mg).connect(car.frequency);
+    mod.connect(mg); try{ mg.connect(car.frequency); }catch{}
     const eg = env(t, 0.004, 0.06, 0.4, 0.14, v);
     car.connect(eg).connect(bus);
     const stopAt = t+0.24;
@@ -276,13 +286,13 @@
     const baseMidi=noteToMidi(base); const f0=midiToFreq(baseMidi-12);
     const o1=osc("sine",f0*0.999), o2=osc("triangle", f0*(1+det/100));
     const pf=regE(ctx.createBiquadFilter()); pf.type="lowpass"; pf.frequency.value=cutoff; pf.Q.value=0.6;
-    const p=regE(ctx.createStereoPanner()); p.pan.value=0;
+    const p=regE(makeStereoPanner()); try{ p.pan.value=0; }catch{}
     const g=regE(ctx.createGain()); g.gain.value=level;
     const lfo1=osc("sine",0.05+Math.random()*0.07), lfoG1=regE(ctx.createGain()); lfoG1.gain.value=0.6;
     const lfo2=osc("sine",0.03+Math.random()*0.05), lfoG2=regE(ctx.createGain()); lfoG2.gain.value=300+600*l;
-    lfo1.connect(lfoG1).connect(p.pan); lfo2.connect(lfoG2).connect(pf.frequency);
+    try{ lfo1.connect(lfoG1).connect(p.pan); }catch{} lfo2.connect(lfoG2).connect(pf.frequency);
     o1.connect(pf); o2.connect(pf); pf.connect(p).connect(g).connect(padBus);
-    const now=ctx.currentTime; [o1,o2,lfo1,lfo2].forEach(o=>o.start(now));
+    const now=ctx.currentTime; [o1,o2,lfo1,lfo2].forEach(o=>{ try{o.start(now);}catch{} });
     return ()=>{ try{o1.stop();o2.stop();lfo1.stop();lfo2.stop();}catch{} };
   }
 
@@ -419,7 +429,7 @@
   // --- Global playback state ---
   let current={tile:null, timer:null, stops:[]};
 
-  // --- Stop playback and reset processing chain ---
+  // --- Stop and reset ---
   async function stopAudio(){
     if(current.timer) try{clearInterval(current.timer);}catch{};
     current.stops.forEach(fn=>{try{fn()}catch{}});
@@ -435,17 +445,24 @@
   function restoreLevels(dust=0.03){
     if(!ctx) return;
     const now=ctx.currentTime;
-    if(master && !muted){ master.gain.cancelScheduledValues(now); master.gain.setValueAtTime(0.0, now); master.gain.linearRampToValueAtTime(0.96, now+0.08); }
-    if(padBus){ padBus.gain.cancelScheduledValues(now); padBus.gain.linearRampToValueAtTime(clamp(dust,0,0.2)*1.4, now+0.08); }
+    if(master && !muted){ try{
+      master.gain.cancelScheduledValues(now);
+      master.gain.setValueAtTime(0.0, now);
+      master.gain.linearRampToValueAtTime(0.96, now+0.08);
+    }catch{} }
+    if(padBus){ try{
+      padBus.gain.cancelScheduledValues(now);
+      padBus.gain.linearRampToValueAtTime(clamp(dust,0,0.2)*1.4, now+0.08);
+    }catch{} }
   }
 
   // --- Start playback for a specific tile and post settings ---
   async function startTile(tile, post){
-    await ensureCtx(); await ctx.resume();
+    await ensureCtx(); try{ await ctx.resume(); }catch{}
     await stopAudio();
 
     const crush = post.crush ?? 0.22;
-    preLP.frequency.setValueAtTime(16000 - crush*3000, ctx.currentTime);
+    try{ preLP.frequency.setValueAtTime(16000 - crush*3000, ctx.currentTime); }catch{}
 
     const baseMidi = noteToMidi(post.base || "A3");
     const scale = MODES[post.mode || "dorian"] || MODES.dorian;
@@ -504,7 +521,7 @@
       if (playBusy) return;
       playBusy = true;
       try {
-        ensureCtx(); await ctx.resume();
+        ensureCtx(); try{ await ctx.resume(); }catch{}
 
         if(current.tile===tile){
           await stopAudio();
