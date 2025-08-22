@@ -1,6 +1,21 @@
 {
   "posts": [
       {
+      "date": "2025-08-22",
+      "hex": "#fc8eac",
+      "base": "D5",
+      "mode": "octatonic",
+      "bpm": 120,
+      "steps": 8,
+      "octaves": 2,
+      "waveform": "pulse",
+      "swing": 0.14,
+      "drive": 0.9,
+      "crush": 0.22,
+      "dust": 0.02,
+      "kit": "arcade"
+    },
+      {
       "date": "2025-08-21",
       "hex": "#9a52a3",
       "base": "G3",
