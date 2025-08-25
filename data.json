@@ -1,3 +1,18 @@
+    {
+      "date": "2025-08-25",
+      "hex": "#C68346",
+      "base": "C5",
+      "mode": "mixolydian",
+      "bpm": 111,
+      "steps": 80,
+      "octaves": 6,
+      "waveform": "square",
+      "swing": 0.14,
+      "drive": 0.6,
+      "crush": 0.55,
+      "dust": 0.02,
+      "kit": "bass"
+    },
 {
   "posts": [
        {
