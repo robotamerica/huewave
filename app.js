@@ -1,10 +1,15 @@
-(() => {
-  // Select a single element
+(async () => {
+  // =========================
+  // huewave app.js (legacy + Tone.js engines)
+  // =========================
+
+  // ---------- DOM helpers ----------
   const $ = (q, el = document) => el.querySelector(q);
 
-  // --- Play/Pause icon helpers and tile UI state ---
+  // ---------- Play/Pause icon + tile UI ----------
   const PLAY_SVG  = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7-11-7z"></path></svg>`;
   const PAUSE_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h5v14H6zM13 5h5v14h-5z"></path></svg>`;
+
   function setTilePlaying(tile, isOn) {
     if (!tile) return;
     tile.classList.toggle("playing", !!isOn);
@@ -16,7 +21,7 @@
   }
   let playBusy = false;
 
-  // --- Theme, to-top, and mute state ---
+  // ---------- Theme, to-top, mute ----------
   const THEME_KEY = "huewave/theme";
   const prefersDark = matchMedia("(prefers-color-scheme: dark)").matches;
   const savedTheme = localStorage.getItem(THEME_KEY);
@@ -38,7 +43,7 @@
   let muted = JSON.parse(localStorage.getItem("huewave/muted") || "false");
   $("#muteBtn")?.addEventListener("click", () => { ensureCtx(); setMuted(!muted); });
 
-  // --- Text tickers for “mood” and “sound” (translations only) ---
+  // ---------- Tickers ----------
   const MOOD = ["mood","estado de ánimo","humeur","stimmung","umore","humor","stemming","humör","humør","mieliala","nastrój","nálada","hangulat","stare","настроение","настрій","διάθεση","ruh hali","مزاج","מצב רוח","मूड","মুড","気分","기분","心情","心情","tâm trạng","suasana","suasana hati","damdamin","sauti ya hisia","አመለካከት"];
   const SOUND = ["sound","sonido","son","klang","suono","som","geluid","ljud","lyd","ääni","dźwięk","zvuk","hang","sunet","звук","звук","ήχος","ses","صوت","צליל","ध्वनि","শব্দ","音","소리","声音","聲音","âm thanh","bunyi","tunog","sauti","ድምፅ"];
   function cycle(el, words, base=2200, jitter=900){
@@ -51,7 +56,7 @@
   cycle($("#moodTicker"), MOOD, 2200, 800);
   cycle($("#soundTicker"), SOUND, 3000, 1200);
 
-  // --- Color utility (HEX to HSL) ---
+  // ---------- Color utils ----------
   function hexToHsl(hex){
     const m=/^#?([0-9a-f]{6})$/i.exec(hex||""); if(!m) return {h:0,s:0,l:0.5};
     const n=parseInt(m[1],16), r=((n>>16)&255)/255, g=((n>>8)&255)/255, b=(n&255)/255;
@@ -61,7 +66,7 @@
     return {h,s,l};
   }
 
-  // --- Music theory helpers ---
+  // ---------- Music theory ----------
   const NOTE_INDEX={C:0,"C#":1,Db:1,D:2,"D#":3,Eb:3,E:4,F:5,"F#":6,Gb:6,G:7,"G#":8,Ab:8,A:9,"A#":10,Bb:10,B:11};
   const A4=440,A4_MIDI=69, midiToFreq=m=>A4*Math.pow(2,(m-A4_MIDI)/12);
   function noteToMidi(n="A3"){ const m=/^([A-G](?:#|b)?)\s*(-?\d+)$/.exec(String(n).trim()); if(!m) return 57; const[,nm,o]=m; return (parseInt(o,10)+1)*12+(NOTE_INDEX[nm]??9); }
@@ -69,13 +74,12 @@
     ionian:[0,2,4,5,7,9,11],dorian:[0,2,3,5,7,9,10],phrygian:[0,1,3,5,7,8,10],lydian:[0,2,4,6,7,9,11],
     mixolydian:[0,2,4,5,7,9,10],aeolian:[0,2,3,5,7,8,10],locrian:[0,1,3,5,6,8,10],
     pent_major:[0,2,4,7,9],pent_minor:[0,3,5,7,10],
-    // NEW modes
     harm_minor:[0,2,3,5,7,8,11], mel_minor:[0,2,3,5,7,9,11],
     whole_tone:[0,2,4,6,8,10], octatonic:[0,2,3,5,6,8,9,11], blues_minor:[0,3,5,6,7,10]
   };
   const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 
-  // --- Audio graph: matches studio chain exactly (with fallbacks) ---
+  // ---------- Legacy WebAudio engine core ----------
   let AudioCtx = window.AudioContext||window.webkitAudioContext;
   let ctx=null, bus=null, preLP=null, agc=null, comp=null, limiter=null, dcBlock=null, master=null, analyser=null;
   let delay=null, delayWet=null, fbHP=null, fbGain=null, padBus=null;
@@ -93,7 +97,6 @@
   }
   function makeStereoPanner(){
     if (typeof ctx.createStereoPanner === "function") return ctx.createStereoPanner();
-    // fallback: a gain node with a dummy pan param to avoid crashes
     const g = ctx.createGain();
     g.pan = { value:0, set value(_) {}, setValueAtTime(){}, linearRampToValueAtTime(){}, cancelScheduledValues(){} };
     return g;
@@ -175,15 +178,11 @@
     EPHEM.clear();
   }
 
-  // --- Envelope generator (ADSR) ---
+  // ---------- Sources & voices ----------
   function env(t,a=0.006,d=0.06,s=0.6,r=0.14,g=0.22){ const gn=regE(ctx.createGain()); try{
     gn.gain.setValueAtTime(0.0001,t); gn.gain.linearRampToValueAtTime(g,t+a); gn.gain.linearRampToValueAtTime(g*s,t+a+d); gn.gain.exponentialRampToValueAtTime(0.0001,t+a+d+r);
   }catch{} return gn; }
-
-  // --- Oscillator constructor ---
   function osc(type,f){ const o=regE(ctx.createOscillator()); o.type=type; o.frequency.value=f; return o; }
-
-  // === NEW: extra source builders (noise & pulse) ===
   function noiseSrc(dur=0.2){
     const b = ctx.createBuffer(1, Math.ceil(dur*ctx.sampleRate), ctx.sampleRate);
     const ch = b.getChannelData(0);
@@ -204,14 +203,14 @@
     return regE(o);
   }
 
-  // --- Drum voices (kick, snare, hat) ---
+  // Drums
   function kick(t,v=0.72){ const g=env(t,0.002,0.08,0,0.18,v); const o=osc("sine",150); try{
     o.frequency.setValueAtTime(150,t); o.frequency.exponentialRampToValueAtTime(42,t+0.16);
   }catch{} o.connect(g).connect(bus); o.start(t); o.stop(t+0.3); }
   function snare(t,v=0.42){ const dur=0.16; const b=regE(ctx.createBuffer(1,Math.ceil(dur*ctx.sampleRate),ctx.sampleRate)); const ch=b.getChannelData(0); for(let i=0;i<ch.length;i++) ch[i]=Math.random()*2-1; const s=regE(ctx.createBufferSource()); s.buffer=b; const hp=regE(ctx.createBiquadFilter()); hp.type="highpass"; hp.frequency.value=1500; const bp=regE(ctx.createBiquadFilter()); bp.type="bandpass"; bp.frequency.value=1400; bp.Q.value=0.9; const g=env(t,0.001,dur*0.6,0,dur*0.6,v); s.connect(hp).connect(bp).connect(g).connect(bus); s.start(t); s.stop(t+dur); }
   function hat(t,v=0.14,closed=true){ const dur=closed?0.05:0.18; const b=regE(ctx.createBuffer(1,Math.ceil(dur*ctx.sampleRate),ctx.sampleRate)); const ch=b.getChannelData(0); for(let i=0;i<ch.length;i++) ch[i]=Math.random()*2-1; const s=regE(ctx.createBufferSource()); s.buffer=b; const hp=regE(ctx.createBiquadFilter()); hp.type="highpass"; hp.frequency.value=7000; const g=env(t,0.001,closed?0.02:0.05,closed?0:0.3,closed?0.03:0.12,v); s.connect(hp).connect(g).connect(bus); s.start(t); s.stop(t+dur); }
 
-  // === NEW: extra percussion & tones ===
+  // Extra percussion & tones
   function clap(t, v=0.28){
     const hits = [0, 0.012, 0.026, 0.05];
     hits.forEach((off,i)=>{
@@ -240,8 +239,8 @@
     s.connect(hp).connect(g).connect(bus); s.start(t); s.stop(t+dur);
   }
 
-  // --- Melodic note and chord builders (extended) ---
-  function blip(t,f,{wave="triangle",dur=0.22,gain=0.18,wobble=0.0025,duty=0.22}={}){ 
+  // Melodic
+  function blip(t,f,{wave="triangle",dur=0.22,gain=0.18,wobble=0.0025,duty=0.22}={}){
     let source;
     if (wave === "noise") {
       source = noiseSrc(dur);
@@ -262,7 +261,7 @@
   }
   function chord(t,fs,{wave="triangle",gain=0.15,dur=0.4}={}){ const g=env(t,0.012,0.12,0.45,0.26,gain); g.connect(bus); fs.forEach(f=>{ const o=osc(wave,f); o.connect(g); o.start(t); o.stop(t+dur); }); }
 
-  // === NEW: bass & FM blip ===
+  // Bass & FM
   function bassNote(t, f, v=0.22){
     const o = osc("sawtooth", f);
     const lp = regE(ctx.createBiquadFilter()); lp.type="lowpass"; lp.frequency.value = Math.min(2200, f*3);
@@ -280,7 +279,7 @@
     car.start(t); mod.start(t); car.stop(stopAt); mod.stop(stopAt);
   }
 
-  // --- Ambient pad generator (stereo, color-aware) ---
+  // Pad & KO-weird
   function startAmbientPad({hex="#6BCB77", base="A3", level=0.08}){
     const {l}=hexToHsl(hex); const cutoff=300 + l*5000; const det=0.4 + (1-l)*0.8;
     const baseMidi=noteToMidi(base); const f0=midiToFreq(baseMidi-12);
@@ -295,8 +294,6 @@
     const now=ctx.currentTime; [o1,o2,lfo1,lfo2].forEach(o=>{ try{o.start(now);}catch{} });
     return ()=>{ try{o1.stop();o2.stop();lfo1.stop();lfo2.stop();}catch{} };
   }
-
-  // --- KO33-style micro-sample layer (quirky ear candy) ---
   function startKOWeird({bpm=84, swing=0.14, drive=0.5, base="A3", mode="dorian"}){
     const scale=MODES[mode]||MODES.dorian; const baseMidi=noteToMidi(base); const spb=60/bpm, six=spb/4;
     const pHit=clamp(drive/1.2,0,1)*0.35; let step=0, next=ctx.currentTime+0.03;
@@ -307,7 +304,7 @@
     return ()=>{ try{clearInterval(id);}catch{} };
   }
 
-  // === NEW: Euclidean rhythm helper ===
+  // Euclid helper
   function euclid(k, n){
     const a = Array(k).fill([1]), b = Array(n-k).fill([0]);
     let A=a, B=b;
@@ -320,7 +317,7 @@
     return A.flat(Infinity);
   }
 
-  // --- Pattern engines (kits) ---
+  // ---------- Pattern engines (legacy kits) ----------
   function startKO(cfg){ const {baseMidi, scale, steps, sixteenth, swingAmt, octaves, wave}=cfg;
     let step=0,next=ctx.currentTime+0.03;
     const timer=setInterval(()=>{ while(next<ctx.currentTime+0.25){ const t=next+(step%2?sixteenth*swingAmt:0);
@@ -351,7 +348,7 @@
     const timer=setInterval(()=>{ const deg=scale[Math.floor(Math.random()*scale.length)]; blip(ctx.currentTime+0.02, midiToFreq(baseMidi+deg), {wave:"sine", dur:spb*1.6, gain:0.12}); }, spb*1000);
     return {timer,stops:[()=>{try{o1.stop();o2.stop();}catch{}}]}; }
 
-  // === NEW kits ===
+  // Extra kits
   function startBASS(cfg){
     const { baseMidi, scale, steps, sixteenth, swingAmt } = cfg;
     let step=0, next=ctx.currentTime+0.03;
@@ -426,11 +423,134 @@
     return { timer, stops:[] };
   }
 
-  // --- Global playback state ---
+  // ---------- Tone.js engine module ----------
+  // Expose a single module on window so legacy code can call start/stop.
+  window.huewaveTone = window.huewaveTone || (()=>{
+    let toneState = { active:false, parts:[], synths:[], fx:[], tile:null };
+
+    async function stop(){
+      if (!window.Tone) return;
+      try {
+        Tone.Transport.stop();
+        Tone.Transport.cancel(0);
+      } catch {}
+      toneState.parts.forEach(p => { try{ p.dispose(); }catch{} });
+      toneState.synths.forEach(s => { try{ s.dispose?.(); }catch{} });
+      toneState.fx.forEach(f => { try{ f.dispose?.(); }catch{} });
+      toneState = { active:false, parts:[], synths:[], fx:[], tile:null };
+    }
+
+    async function start(tile, post){
+      if (!window.Tone) throw new Error("Tone.js not loaded");
+      await Tone.start(); // mobile unlock
+      await stop();
+
+      // UI
+      resetAllTilesUI();
+      setTilePlaying(tile, true);
+      toneState.tile = tile;
+
+      // Transport
+      const bpm = clamp(post.bpm ?? 100, 40, 190);
+      Tone.Transport.bpm.value = bpm;
+      Tone.Transport.swing = clamp(post.swing ?? 0.14, 0, 0.3);
+      Tone.Transport.swingSubdivision = "16n";
+
+      // FX chain
+      const rev = new Tone.Reverb({ decay: 2.4, wet: 0.18 });
+      const comp = new Tone.Compressor({ threshold: -18, ratio: 3, attack: 0.006, release: 0.16 });
+      rev.connect(comp).toDestination();
+      toneState.fx.push(rev, comp);
+
+      // Drums
+      const kick = new Tone.MembraneSynth({ pitchDecay: 0.03, octaves: 3, envelope:{ attack:0.001, decay:0.32, sustain:0, release:0.05 } }).connect(comp);
+      const snr  = new Tone.NoiseSynth({
+        noise:{ type:"white" },
+        envelope:{ attack:0.001, decay:0.16, sustain:0, release:0.04 }
+      }).connect(new Tone.Filter(1800,"highpass").connect(comp));
+      const hat  = new Tone.NoiseSynth({
+        noise:{ type:"white" },
+        envelope:{ attack:0.001, decay:0.05, sustain:0, release:0.03 }
+      }).connect(new Tone.Filter(7000,"highpass").connect(comp));
+      toneState.synths.push(kick, snr, hat);
+
+      // Theory
+      const baseMidi = noteToMidi(post.base || "A3");
+      const scale = MODES[post.mode || "dorian"] || MODES.dorian;
+      const wave = (post.waveform || "triangle");
+      const degToFreq = (deg, oct = 0) => midiToFreq(baseMidi + deg + (12 * oct));
+      const steps = clamp(post.steps ?? 16, 8, 32);
+
+      // Lead
+      const lead = new Tone.Oscillator({ type: wave }).start();
+      const leadAmp = new Tone.AmplitudeEnvelope({ attack:0.01, decay:0.1, sustain:0.5, release:0.18 });
+      lead.connect(leadAmp).connect(rev);
+      toneState.synths.push(lead, leadAmp);
+
+      // Bass
+      const bass = new Tone.FatOscillator({ type:"sawtooth", count:3, spread:15 }).start();
+      const bassLP = new Tone.Filter(220, "lowpass");
+      const bassAmp = new Tone.AmplitudeEnvelope({ attack:0.005, decay:0.12, sustain:0.5, release:0.22 });
+      bass.connect(bassLP).connect(bassAmp).connect(comp);
+      toneState.synths.push(bass, bassLP, bassAmp);
+
+      // Kit variations
+      const kit = String(post.kit || "").toLowerCase();
+      let kickSteps = [0,4,8,12];
+      let snrSteps  = [4,12];
+      let hatEvery  = 2;
+      if (kit === "tone_dnb"){
+        kickSteps = [0,3,8,11]; snrSteps=[4,12]; hatEvery=1;
+      } else if (kit === "tone_909"){
+        kickSteps = [0,4,8,12]; snrSteps=[4,12]; hatEvery=1;
+      } else if (kit === "tone_ambientpad2"){
+        kickSteps = []; snrSteps=[]; hatEvery=4;
+      }
+
+      // Parts
+      const grid = Array.from({length:steps}, (_,i)=>[`0:${Math.floor(i/4)}:${i%4}`, i]);
+
+      const drumPart = new Tone.Part((time, step) => {
+        if (kickSteps.includes(step)) kick.triggerAttackRelease("C2", "8n", time, 0.9);
+        if (snrSteps.includes(step))  snr.triggerAttackRelease("16n", time, 0.5);
+        if (step % hatEvery === 0)    hat.triggerAttackRelease("32n", time, 0.25);
+      }, grid);
+      drumPart.loop = true; drumPart.loopEnd = `0:${Math.ceil(steps/4)}:0`; drumPart.start(0);
+      toneState.parts.push(drumPart);
+
+      const bassPart = new Tone.Part((time, step) => {
+        if (step % 2 !== 0) return;
+        const deg = scale[(step/2) % scale.length | 0];
+        bass.frequency.setValueAtTime(degToFreq(deg, -1), time);
+        bassAmp.triggerAttackRelease("8n", time, 0.4);
+      }, grid);
+      bassPart.loop = true; bassPart.loopEnd = drumPart.loopEnd; bassPart.start(0);
+      toneState.parts.push(bassPart);
+
+      const leadPart = new Tone.Part((time, step) => {
+        if (step % 4 !== 0) return;
+        const deg = scale[(step/4) % scale.length | 0];
+        const octaveUp = Math.random() > 0.6 ? 1 : 0;
+        lead.frequency.setValueAtTime(degToFreq(deg, octaveUp), time);
+        leadAmp.triggerAttackRelease("8n", time, 0.35);
+      }, grid);
+      leadPart.loop = true; leadPart.loopEnd = drumPart.loopEnd; leadPart.start(0);
+      toneState.parts.push(leadPart);
+
+      toneState.active = true;
+      Tone.Transport.start("+0.02");
+    }
+
+    return { start, stop };
+  })();
+
+  // ---------- Global playback state (legacy engine) ----------
   let current={tile:null, timer:null, stops:[]};
 
-  // --- Stop and reset ---
+  // ---------- Stop (both engines) ----------
   async function stopAudio(){
+    // First stop Tone engine if running
+    try { await window.huewaveTone.stop(); } catch {}
     if(current.timer) try{clearInterval(current.timer);}catch{};
     current.stops.forEach(fn=>{try{fn()}catch{}});
     if (current.tile) setTilePlaying(current.tile, false);
@@ -441,7 +561,7 @@
     rebuildDelay();
   }
 
-  // --- Restore output levels after starting a tile ---
+  // ---------- Restore output levels after starting a tile (legacy) ----------
   function restoreLevels(dust=0.03){
     if(!ctx) return;
     const now=ctx.currentTime;
@@ -456,9 +576,21 @@
     }catch{} }
   }
 
-  // --- Start playback for a specific tile and post settings ---
+  // ---------- Start playback for a tile ----------
   async function startTile(tile, post){
     await ensureCtx(); try{ await ctx.resume(); }catch{}
+    // If requested Tone engine
+    const wantsTone = (String(post.engine||"").toLowerCase() === "tone") ||
+                      (String(post.kit||"").toLowerCase().startsWith("tone_"));
+    if (wantsTone){
+      await stopAudio(); // clear legacy nodes + UI
+      await window.huewaveTone.start(tile, post);
+      setTilePlaying(tile, true);
+      current = { tile, timer: null, stops: [] };
+      return;
+    }
+
+    // Legacy engine
     await stopAudio();
 
     const crush = post.crush ?? 0.22;
@@ -486,11 +618,16 @@
     else if(kit==="arcade") run=startARCADE(cfg);
     else if(kit==="pad") run=startPAD(cfg);
     else if(kit==="drone") run=startDRONE(cfg);
-    // NEW kits
     else if(kit==="bass") run=startBASS(cfg);
     else if(kit==="chip") run=startCHIP(cfg);
     else if(kit==="euclid") run=startEUCLID(cfg);
     else if(kit==="ambient2") run=startAMBIENT2(cfg);
+    else {
+      // unknown kit -> simple arp
+      let step=0, next=ctx.currentTime+0.03;
+      const timer=setInterval(()=>{ while(next<ctx.currentTime+0.25){ const t=next; const deg=scale[step%scale.length]; blip(t, midiToFreq(baseMidi+deg), {wave, dur:spb/2, gain:0.16}); step=(step+1)%steps; next+=spb/4; }},50);
+      run={timer,stops:[]};
+    }
 
     const dust = clamp(post.dust ?? 0.02, 0, 0.2);
     const drive = clamp(post.drive ?? 0.5, 0, 1.2);
@@ -503,10 +640,10 @@
     restoreLevels(dust);
   }
 
-  // --- Date helper for fallback formatting ---
+  // ---------- Date helper ----------
   function todayISO(){ const t=new Date(), y=t.getFullYear(), m=String(t.getMonth()+1).padStart(2,"0"), d=String(t.getDate()).padStart(2,"0"); return `${y}-${m}-${d}`; }
 
-  // --- Tile factory for a post object ---
+  // ---------- Tile factory ----------
   const grid=$("#grid");
   function makeTile(post, idx){
     const tile=document.createElement("article"); tile.className="tile"; tile.dataset.idx=String(idx); tile.dataset.hex=post.hex; tile.dataset.date=post.date;
@@ -516,6 +653,13 @@
     const dEl=document.createElement("div"); dEl.className="date"; dEl.textContent=post.date;
     const hEl=document.createElement("div"); hEl.className="hex"; hEl.textContent=post.hex.toUpperCase();
     meta.append(dEl,hEl);
+
+    // Pointer highlight
+    sw.addEventListener("pointermove", (e)=>{
+      const rect = sw.getBoundingClientRect();
+      sw.style.setProperty("--x", ((e.clientX-rect.left)/rect.width*100).toFixed(2)+"%");
+      sw.style.setProperty("--y", ((e.clientY-rect.top)/rect.height*100).toFixed(2)+"%");
+    });
 
     sw.addEventListener("click", async ()=>{
       if (playBusy) return;
@@ -543,27 +687,29 @@
     tile.append(sw, meta); return tile;
   }
 
-  // --- Load JSON, render tiles, and poll for updates ---
+  // ---------- Load posts & render ----------
   fetch("data.json?v="+Date.now(), {cache:"no-store"})
     .then(r=>r.json())
     .then(data=>{
       const posts=(data.posts||[])
-        .map(p=>({ date:p.date||todayISO(), hex:p.hex, base:p.base, mode:p.mode, bpm:p.bpm, steps:p.steps, octaves:p.octaves, waveform:p.waveform, swing:p.swing, drive:p.drive, crush:p.crush, dust:p.dust, kit:p.kit }))
+        .map(p=>({ date:p.date||todayISO(), hex:p.hex, base:p.base, mode:p.mode, bpm:p.bpm, steps:p.steps, octaves:p.octaves, waveform:p.waveform, swing:p.swing, drive:p.drive, crush:p.crush, dust:p.dust, kit:p.kit, engine:p.engine }))
         .filter(p=>/^#[0-9a-fA-F]{6}$/.test(p.hex))
         .sort((a,b)=> (a.date<b.date)?1:-1);
       posts.forEach((p,i)=> grid.appendChild(makeTile(p,i)));
     })
     .catch(()=>{});
 
+  // ---------- Poll data.json for updates ----------
   (function(){
     const POLL=60; let tag=null;
     async function headTag(){ try{ const r=await fetch("data.json",{method:"HEAD",cache:"no-store"}); return r.headers.get("etag") || r.headers.get("last-modified") || String(Math.random()); }catch{return null;} }
-    async function load(){ const r=await fetch("data.json?v="+Date.now(),{cache:"no-store"}); const d=await r.json(); return (d.posts||[]).filter(p=>/^#[0-9a-fA-F]{6}$/.test(p.hex)).map(p=>({ date:p.date||todayISO(), hex:p.hex, base:p.base, mode:p.mode, bpm:p.bpm, steps:p.steps, octaves:p.octaves, waveform:p.waveform, swing:p.swing, drive:p.drive, crush:p.crush, dust:p.dust, kit:p.kit })).sort((a,b)=> (a.date<b.date)?1:-1); }
+    async function load(){ const r=await fetch("data.json?v="+Date.now(),{cache:"no-store"}); const d=await r.json(); return (d.posts||[]).filter(p=>/^#[0-9a-fA-F]{6}$/.test(p.hex)).map(p=>({ date:p.date||todayISO(), hex:p.hex, base:p.base, mode:p.mode, bpm:p.bpm, steps:p.steps, octaves:p.octaves, waveform:p.waveform, swing:p.swing, drive:p.drive, crush:p.crush, dust:p.dust, kit:p.kit, engine:p.engine })).sort((a,b)=> (a.date<b.date)?1:-1); }
     async function rerender(posts){ try{ await stopAudio(); }catch{} while(grid.firstChild) grid.removeChild(grid.firstChild); posts.forEach((p,i)=> grid.appendChild(makeTile(p,i))); }
     async function poll(){ const t=await headTag(); if(!t) return; if(tag===null){ tag=t; return;} if(t!==tag){ try{ const posts=await load(); await rerender(posts); tag=t; }catch{} } }
     setInterval(poll, POLL*1000); setTimeout(poll, 5000);
   })();
 
-  // --- Expose mute setter for external toggles if needed ---
+  // ---------- Expose mute ----------
   window.huewaveSetMuted = setMuted;
+
 })();
