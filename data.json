@@ -1,5 +1,21 @@
 {
   "posts": [
+    {
+      "date": "2025-09-18",
+      "hex": "#01796F",
+      "base": "E2",
+      "mode": "mixolydian",
+      "bpm": 82,
+      "steps": 26,
+      "octaves": 4,
+      "waveform": "sine",
+      "swing": 0.12,
+      "drive": 0.9,
+      "crush": 0.22,
+      "dust": 0.02,
+      "kit": "tone_909",
+      "engine": "tone"
+    },
 {
       "date": "2025-09-17",
       "hex": "#cf2d56",
@@ -14,7 +30,7 @@
       "crush": 0.22,
       "dust": 0.5,
       "kit": "lofi"
-    }
+    },
 {
       "date": "2025-09-16",
       "hex": "#E57350",
