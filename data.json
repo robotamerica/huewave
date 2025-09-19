@@ -1,6 +1,21 @@
 {
   "posts": [
     {
+      "date": "2025-09-19",
+      "hex": "#319177",
+      "base": "B2",
+      "mode": "pent_major",
+      "bpm": 75,
+      "steps": 5,
+      "octaves": 6,
+      "waveform": "noise",
+      "swing": 0.22,
+      "drive": 0.66,
+      "crush": 0.3,
+      "dust": 0.5,
+      "kit": "chip"
+    },
+    {
       "date": "2025-09-18",
       "hex": "#01796F",
       "base": "E2",
