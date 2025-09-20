@@ -1,6 +1,22 @@
 {
   "posts": [
     {
+      "date": "2025-09-20",
+      "hex": "#D8BFD8",
+      "base": "A2",
+      "mode": "ionian",
+      "bpm": 99,
+      "steps": 60,
+      "octaves": 1,
+      "waveform": "triangle",
+      "swing": 0.08,
+      "drive": 0.09,
+      "crush": 0.55,
+      "dust": 0.05,
+      "kit": "tone_ambientpad2",
+      "engine": "tone"
+    },
+    {
       "date": "2025-09-19",
       "hex": "#319177",
       "base": "B2",
