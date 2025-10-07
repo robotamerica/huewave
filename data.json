@@ -1,5 +1,21 @@
 {
   "posts": [
+            {
+      "date": "2025-10-07",
+      "hex": "#BBB477",
+      "base": "F2",
+      "mode": "whole_tone",
+      "bpm": 82,
+      "steps": 8,
+      "octaves": 1,
+      "waveform": "sine",
+      "swing": 0.22,
+      "drive": 0.05,
+      "crush": 0.08,
+      "dust": 0.02,
+      "kit": "tone_909",
+      "engine": "tone"
+    },
          {
       "date": "2025-10-06",
       "hex": "#FD5B78",
