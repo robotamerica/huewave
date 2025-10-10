@@ -1,6 +1,21 @@
 {
   "posts": [
          {
+      "date": "2025-10-09",
+      "hex": "#8ba542",
+      "base": "B3",
+      "mode": "octatonic",
+      "bpm": 69,
+      "steps": 22,
+      "octaves": 6,
+      "waveform": "sawtooth",
+      "swing": 0.33,
+      "drive": 0.55,
+      "crush": 0.55,
+      "dust": 0.05,
+      "kit": "chip"
+    },
+         {
       "date": "2025-10-08",
       "hex": "#8CADDA",
       "base": "A3",
