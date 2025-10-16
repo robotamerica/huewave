@@ -7,40 +7,158 @@
   <meta name="theme-color" content="#111111" />
   <link rel="stylesheet" href="style.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 72 72%22><text y=%22.9em%22 font-size=%2264%22>🌈</text></svg>">
+  <style>
+    /* --- popup + embedded key styles --- */
+    .btn.key{
+      font-size:20px; line-height:1;
+      display:grid; place-items:center;
+      width:36px; height:36px; border-radius:14px;
+      border:1px solid var(--ring); background:var(--card);
+      cursor:pointer; user-select:none; -webkit-tap-highlight-color:transparent;
+      transition: transform .15s ease, background .2s ease, border-color .2s ease, opacity .2s;
+    }
+    .btn.key:active{ transform: scale(.97) }
+
+    dialog#keyDialog{
+      border:none; padding:0; width:90vw; max-width:1100px; height:85vh;
+      border-radius:20px; background:color-mix(in oklab, var(--bg) 30%, transparent);
+      backdrop-filter:blur(14px);
+      box-shadow:0 10px 45px rgba(0,0,0,.4);
+      opacity:0; transform:scale(.96);
+      transition:opacity .28s ease, transform .28s ease;
+    }
+    dialog#keyDialog[open]{ opacity:1; transform:scale(1) }
+
+    dialog#keyDialog::backdrop{
+      background:rgba(0,0,0,.6);
+      backdrop-filter:blur(6px);
+    }
+
+    dialog#keyDialog .close{
+      position:absolute; top:10px; right:16px;
+      font-size:26px; color:var(--fg);
+      background:none; border:none; cursor:pointer;
+      filter:drop-shadow(0 0 4px rgba(0,0,0,.8));
+      transition:transform .2s ease, opacity .2s ease;
+    }
+    dialog#keyDialog .close:hover{ transform:scale(1.12) }
+
+    #keyDialog .wrap{
+      display:grid;
+      gap:18px;
+      padding:32px 24px;
+      grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+    }
+    #keyDialog .cell{
+      background:linear-gradient(to bottom,rgba(255,255,255,.06),transparent 28%),var(--card);
+      border-radius:22px;
+      box-shadow:0 12px 30px rgba(0,0,0,.2), inset 0 0 0 1px var(--ring);
+      padding:18px 16px 14px;
+      display:grid;
+      gap:14px;
+      place-items:center;
+      transition:transform .15s ease;
+    }
+    #keyDialog .cell:hover{transform:translateY(-3px)}
+    #keyDialog .dot{
+      width:80px; aspect-ratio:1; border-radius:50%;
+      box-shadow:0 8px 18px rgba(0,0,0,.4), inset 0 0 0 2px rgba(255,255,255,.05);
+    }
+    #keyDialog .row{
+      display:flex; gap:10px; flex-wrap:wrap;
+      justify-content:center; font-size:28px;
+    }
+    #keyDialog .b{background:conic-gradient(#1ea0ff,#2bc3ff 30%,#1ea0ff 75%,#1785ff)}
+    #keyDialog .r{background:conic-gradient(#ff3b3b,#ff6a4d 35%,#ff2e63 70%,#ff3b3b)}
+    #keyDialog .g{background:conic-gradient(#35d07f,#28c7a7 40%,#31c45a 75%,#35d07f)}
+    #keyDialog .p{background:conic-gradient(#a347ff,#ff3bd1 40%,#8a4dff 75%,#a347ff)}
+    #keyDialog .y{background:conic-gradient(#ffd400,#ffb200 40%,#ffdf5a 75%,#ffd400)}
+    #keyDialog .k{background:radial-gradient(circle at 35% 30%,#2a2c33 0 38%,#15171c 60%,#0c0d11 100%)}
+
+    @media (prefers-reduced-motion: reduce){
+      dialog#keyDialog{transition:none}
+    }
+  </style>
 </head>
 <body>
-<div class="bar" aria-hidden="false">
-  <div class="brandwrap">
-    <div class="brand" title=""></div>
-    <div class="tickers" aria-hidden="false">
-      <span class="ticker" id="moodTicker"></span>
-      <span class="sep">·</span>
-      <span class="ticker" id="soundTicker"></span>
+
+  <!-- header bar -->
+  <div class="bar" aria-hidden="false">
+    <div class="brandwrap">
+      <div class="brand" title=""></div>
+      <div class="tickers" aria-hidden="false">
+        <span class="ticker" id="moodTicker"></span>
+        <span class="sep">·</span>
+        <span class="ticker" id="soundTicker"></span>
+      </div>
+    </div>
+    <div class="controls">
+      <!-- theme toggle -->
+      <button class="btn" id="themeBtn" aria-label="">
+        <svg viewBox="0 0 24 24">
+          <path d="M12 3v2M12 19v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M3 12h2M19 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          <circle cx="12" cy="12" r="4"/>
+        </svg>
+      </button>
+
+      <!-- key popup -->
+      <button class="btn key" id="keyBtn" aria-label="">🗝️</button>
+
+      <!-- mute -->
+      <button class="btn" id="muteBtn" aria-label="">
+        <svg viewBox="0 0 24 24">
+          <path d="M5 9v6h4l5 4V5L9 9H5z"/>
+          <path d="M16 8l5 8M21 8l-5 8"/>
+        </svg>
+      </button>
     </div>
   </div>
-  <div class="controls">
-    <button class="btn" id="themeBtn" title="" aria-label="">
-      <svg viewBox="0 0 24 24"><path d="M12 3v2M12 19v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M3 12h2M19 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/><circle cx="12" cy="12" r="4"/></svg>
-    </button>
-    <button class="btn" id="muteBtn" title="" aria-label="">
-      <svg viewBox="0 0 24 24"><path d="M5 9v6h4l5 4V5L9 9H5z"/><path d="M16 8l5 8M21 8l-5 8"/></svg>
-    </button>
-  </div>
-  </div>
 
+  <!-- main grid -->
   <main>
     <section class="grid" id="grid" aria-hidden="true"></section>
   </main>
 
+  <!-- scroll-to-top button -->
   <button class="btn to-top" id="toTop" aria-label="Scroll to top">
     <svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
   </button>
 
+  <!-- integrated key modal -->
+  <dialog id="keyDialog">
+    <button class="close" id="closeBtn">✖</button>
+    <div class="wrap" role="group" aria-label="">
+      <button class="cell"><div class="dot b"></div><div class="row">💙 😄 🌊 ☀️ 🫧</div></button>
+      <button class="cell"><div class="dot r"></div><div class="row">❤️‍🔥 ⚡ 🔥 🎛️ 🧠</div></button>
+      <button class="cell"><div class="dot g"></div><div class="row">🌿 💚 🪴 🔊 🕊️</div></button>
+      <button class="cell"><div class="dot p"></div><div class="row">💜 🌀 🌌 🧬 🕯️</div></button>
+      <button class="cell"><div class="dot y"></div><div class="row">☀️ 🧡 ✨ 🤖 🌻</div></button>
+      <button class="cell"><div class="dot k"></div><div class="row">🌑 🌫️ 💤 🤍</div></button>
+    </div>
+  </dialog>
+
+  <!-- footer -->
+  <footer style="position:fixed;bottom:10px;left:10px;">
+    <a href="https://www.kmrowe.info" style="text-decoration:none;font-size:24px;">👻</a>
+  </footer>
+
+  <!-- scripts -->
   <script src="app.js" defer></script>
   <script src="https://unpkg.com/tone@14.8.49/build/Tone.js"></script>
   <script src="tone-engine.js"></script>
-  <footer style="position:fixed;bottom:10px;left:10px;">
-  <a href="https://www.kmrowe.info" style="text-decoration:none;font-size:24px;">👻</a>
-</footer>
+  <script>
+    // key popup logic
+    (function(){
+      const keyBtn = document.getElementById('keyBtn');
+      const dlg = document.getElementById('keyDialog');
+      const closeBtn = document.getElementById('closeBtn');
+      if (keyBtn && dlg) {
+        keyBtn.addEventListener('click', () => dlg.showModal());
+        if (closeBtn) closeBtn.addEventListener('click', () => dlg.close());
+        window.addEventListener('keydown', e => { if (e.key === 'Escape') dlg.close(); });
+      }
+    })();
+  </script>
+
 </body>
 </html>
