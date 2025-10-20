@@ -1,5 +1,36 @@
 {
   "posts": [
+         {
+      "date": "2025-10-20",
+      "hex": "#a10000",
+      "base": "B1",
+      "mode": "pent_minor",
+      "bpm": 80,
+      "steps": 5,
+      "octaves": 1,
+      "waveform": "pulse",
+      "swing": 0.14,
+      "drive": 0.1,
+      "crush": 0.22,
+      "dust": 0.9,
+      "kit": "ambient2"
+    },
+    {
+      "date": "2025-10-19",
+      "hex": "#e70000",
+      "base": "B1",
+      "mode": "pent_minor",
+      "bpm": 80,
+      "steps": 5,
+      "octaves": 1,
+      "waveform": "pulse",
+      "swing": 0.14,
+      "drive": 0.1,
+      "crush": 0.22,
+      "dust": 0.9,
+      "kit": "tone_ambientpad2",
+      "engine": "tone"
+    },
         {
       "date": "2025-10-18",
       "hex": "#1F5253",
